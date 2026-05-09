@@ -108,19 +108,10 @@ def _auto_update() -> None:
 
 
 def _register_login_item() -> None:
-    """Add Floaty to macOS Login Items (System Settings → General → Login Items).
-    Uses the LaunchAgent plist written by the .app launcher. Silent — no error on failure."""
-    try:
-        plist = Path.home() / "Library" / "LaunchAgents" / "com.floaty.plist"
-        if plist.exists():
-            # Ensure it's loaded; launchctl is idempotent
-            import subprocess
-            subprocess.run(
-                ["launchctl", "load", str(plist)],
-                capture_output=True, timeout=5
-            )
-    except Exception:
-        pass  # never crash the app over login item registration
+    """Ensure the LaunchAgent plist exists so Floaty starts at login.
+    The plist is written by the .app launcher; this is a safety net only.
+    We never call launchctl load — that can pop open System Preferences on newer macOS."""
+    pass  # plist is managed by the launcher script; nothing to do here
 
 
 REDIRECT_URI = "http://localhost:8765/callback"
@@ -260,15 +251,96 @@ def build_auth_url(config: dict) -> str:
 
 
 def wait_for_oauth_code(open_url: str) -> str:
-    """Open browser, show a native dialog asking for the redirect URL."""
+    """Open browser, start a local server on port 8765, and wait for Google's redirect.
+
+    The user just clicks Allow in their browser — no copy-paste required.
+    The browser lands on http://localhost:8765/callback?code=..., our server
+    catches the code, shows a success page, and returns.
+    """
+    import http.server
+    import queue as _queue
+
+    code_queue: _queue.Queue = _queue.Queue()
+    server_error: list = []
+
+    SUCCESS_HTML = b"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>body{font-family:-apple-system,sans-serif;text-align:center;
+padding:80px 40px;background:#f9f8f5;color:#0e0e0e;}
+h1{font-size:48px;margin-bottom:8px;}
+p{font-size:18px;color:#555;}</style></head>
+<body><h1>&#x2705; You're connected!</h1>
+<p>You can close this tab and go back to Floaty.</p></body></html>"""
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            if "code" in params:
+                code_queue.put(("ok", params["code"][0]))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(SUCCESS_HTML)
+            elif "error" in params:
+                code_queue.put(("err", params["error"][0]))
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Authorization failed. Please close this tab and try again.")
+            else:
+                self.send_response(200)
+                self.end_headers()
+
+        def log_message(self, *_):
+            pass  # silence server access logs
+
+    # Start local server
+    try:
+        srv = http.server.HTTPServer(("127.0.0.1", 8765), _Handler)
+    except OSError:
+        # Port busy — fall through to manual flow below
+        srv = None
+
+    if srv:
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        webbrowser.open(open_url)
+
+        # Show a non-blocking notification so the user knows what to do
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 'display notification "Sign in with Google, click Allow, then come back." '
+                 'with title "🚀 Floaty — Sign in with Google"'],
+                check=False, capture_output=True,
+            )
+        except Exception:
+            pass
+
+        try:
+            result = code_queue.get(timeout=180)  # 3-minute window
+        except _queue.Empty:
+            srv.shutdown()
+            raise RuntimeError(
+                "Sign-in timed out (3 minutes). Please try opening Floaty again."
+            )
+        finally:
+            srv.shutdown()
+
+        kind, value = result
+        if kind == "err":
+            raise RuntimeError(f"Google sign-in was declined: {value}")
+        return value
+
+    # ── Fallback: manual copy-paste (port 8765 was busy) ────────────────────
     webbrowser.open(open_url)
     alert = AppKit.NSAlert.alloc().init()
     alert.setMessageText_("Connect Floaty to Google")
     alert.setInformativeText_(
         "Your browser just opened for Google sign-in.\n\n"
         "1. Sign in and click Allow.\n"
-        "2. Your browser will show a page that says 'This site can't be reached' — that's normal, don't close it!\n"
-        "3. Copy the full web address from your browser's address bar and paste it below."
+        "2. Your browser will show a 'This site can't be reached' page — that's normal.\n"
+        "3. Copy the full web address from the address bar and paste it below."
     )
     alert.addButtonWithTitle_("Connect")
     alert.addButtonWithTitle_("Cancel")
@@ -283,7 +355,10 @@ def wait_for_oauth_code(open_url: str) -> str:
     parsed = urllib.parse.urlparse(redirect_url)
     params = urllib.parse.parse_qs(parsed.query)
     if "code" not in params:
-        raise ValueError("No 'code' found in the URL. Make sure you copied the full address bar URL.")
+        raise ValueError(
+            "No authorisation code found in the URL. "
+            "Make sure you copied the full address bar URL."
+        )
     return params["code"][0]
 
 
@@ -308,7 +383,7 @@ def exchange_code(code: str, config: dict) -> dict:
 def refresh_access_token(config: dict) -> str:
     rt = keychain_read("refresh_token")
     if not rt:
-        raise RuntimeError("No refresh token — please re-authorize TaskFloat")
+        raise RuntimeError("No refresh token — please re-authorize Floaty")
     body = urllib.parse.urlencode({
         "refresh_token": rt,
         "client_id": config["client_id"],
@@ -2035,14 +2110,14 @@ def main():
     try:
         config = load_config()
     except Exception as e:
-        _alert("TaskFloat — Config Error", str(e))
+        _alert("Floaty — Config Error", str(e))
         sys.exit(1)
 
     if not has_valid_tokens():
         try:
             do_oauth_flow(config)
         except Exception as e:
-            _alert("TaskFloat — Auth Failed", str(e))
+            _alert("Floaty — Sign-in Failed", str(e))
             sys.exit(1)
 
     AppDelegate.config = config
