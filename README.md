@@ -9,7 +9,7 @@ A tiny floating widget for macOS that shows your current Google Calendar event â
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/floaty/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash
 ```
 
 That's it. The script:
@@ -47,7 +47,7 @@ That's it. The script:
 ## Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/floaty/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/uninstall.sh | bash
 ```
 
 ---
@@ -78,5 +78,5 @@ launchctl kickstart -k gui/$(id -u)/com.taskfloat
 
 **Update to latest version:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/floaty/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash
 ```

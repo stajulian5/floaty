@@ -1,5 +1,5 @@
 #!/bin/bash
-# Floaty installer — https://github.com/YOUR_GITHUB_USERNAME/floaty
+# Floaty installer — https://github.com/stajulian5/floaty
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -46,7 +46,7 @@ fi
 mkdir -p ~/TaskFloat
 echo -n "  Downloading Floaty… "
 curl -fsSL \
-    "https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/floaty/main/taskfloat.py" \
+    "https://raw.githubusercontent.com/stajulian5/floaty/main/taskfloat.py" \
     -o ~/TaskFloat/taskfloat.py
 chmod +x ~/TaskFloat/taskfloat.py
 echo -e "${GREEN}done${NC}"
@@ -111,5 +111,5 @@ echo ""
 echo -e "  Floaty is starting now. Your browser will open to sign in with Google."
 echo -e "  After you authorize, the widget appears on your screen."
 echo ""
-echo -e "  ${DIM}To uninstall:  curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/floaty/main/uninstall.sh | bash${NC}"
+echo -e "  ${DIM}To uninstall:  curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/uninstall.sh | bash${NC}"
 echo ""
