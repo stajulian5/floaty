@@ -75,6 +75,24 @@ def _auto_update() -> None:
         except Exception:
             pass  # silently skip — no internet, GitHub down, etc.
     threading.Thread(target=_check, daemon=True).start()
+
+
+def _register_login_item() -> None:
+    """Add Floaty to macOS Login Items (System Settings → General → Login Items).
+    Uses the LaunchAgent plist written by the .app launcher. Silent — no error on failure."""
+    try:
+        plist = Path.home() / "Library" / "LaunchAgents" / "com.floaty.plist"
+        if plist.exists():
+            # Ensure it's loaded; launchctl is idempotent
+            import subprocess
+            subprocess.run(
+                ["launchctl", "load", str(plist)],
+                capture_output=True, timeout=5
+            )
+    except Exception:
+        pass  # never crash the app over login item registration
+
+
 REDIRECT_URI = "http://localhost:8765/callback"
 OAUTH_SCOPE = (
     "https://www.googleapis.com/auth/calendar.events "
@@ -215,17 +233,17 @@ def wait_for_oauth_code(open_url: str) -> str:
     """Open browser, show a native dialog asking for the redirect URL."""
     webbrowser.open(open_url)
     alert = AppKit.NSAlert.alloc().init()
-    alert.setMessageText_("Connect TaskFloat to Google")
+    alert.setMessageText_("Connect Floaty to Google")
     alert.setInformativeText_(
         "Your browser just opened for Google sign-in.\n\n"
-        "After clicking Allow, your browser will show a "
-        "'This site can't be reached' page — that's expected.\n\n"
-        "Copy the full URL from the address bar and paste it below:"
+        "1. Sign in and click Allow.\n"
+        "2. Your browser will show a page that says 'This site can't be reached' — that's normal, don't close it!\n"
+        "3. Copy the full web address from your browser's address bar and paste it below."
     )
     alert.addButtonWithTitle_("Connect")
     alert.addButtonWithTitle_("Cancel")
     field = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, 380, 22))
-    field.setPlaceholderString_("http://localhost:8765/callback?code=…")
+    field.setPlaceholderString_("Paste the full web address from your browser here")
     alert.setAccessoryView_(field)
     alert.window().setInitialFirstResponder_(field)
     response = alert.runModal()
@@ -1068,7 +1086,7 @@ class ContentView(AppKit.NSView):
         if self._status == "loading":
             self._draw_single_message("…", AppKit.NSColor.systemGrayColor(), self._msg, "", 0, p)
         elif self._status == "error":
-            self._draw_single_message("! ERROR", AppKit.NSColor.systemRedColor(), "Could not load", self._msg, 0, p)
+            self._draw_single_message("! ERROR", AppKit.NSColor.systemRedColor(), "Could not load — click to retry", self._msg, 0, p)
         elif not self._events:
             self._check_rects = []
             self._draw_free_state(w, h, p)
@@ -1260,6 +1278,13 @@ class ContentView(AppKit.NSView):
                 delegate.showAddTaskDialog()
             return
 
+        # Error state: clicking retries the refresh
+        if self._status == "error":
+            delegate = AppKit.NSApp.delegate()
+            if delegate:
+                delegate.scheduleImmediateRefresh()
+            return
+
         # Busy state: clicking the main body opens Google Calendar
         AppKit.NSWorkspace.sharedWorkspace().openURL_(
                 Foundation.NSURL.URLWithString_("https://calendar.google.com")
@@ -1289,7 +1314,7 @@ class ContentView(AppKit.NSView):
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
-        hi = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide Floaty", "hideFloaty:", "")
+        hi = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide for Now", "hideFloaty:", "")
         hi.setTarget_(delegate)
         menu.addItem_(hi)
 
@@ -1571,6 +1596,7 @@ class AppDelegate(AppKit.NSObject):
     def applicationDidFinishLaunching_(self, notification):
         self._refresh_timer = None
         _auto_update()  # check for updates silently in background
+        _register_login_item()  # ensure Floaty starts at login
 
         # Restore crushed history and today's count
         ud = Foundation.NSUserDefaults.standardUserDefaults()
@@ -1609,7 +1635,7 @@ class AppDelegate(AppKit.NSObject):
 
         status_menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
-        self._hide_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide Floaty", "hideFloaty:", "")
+        self._hide_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide for Now", "hideFloaty:", "")
         self._hide_item.setTarget_(self)
         status_menu.addItem_(self._hide_item)
 
@@ -1624,6 +1650,14 @@ class AppDelegate(AppKit.NSObject):
         self._start_timer()
         threading.Thread(target=self._do_refresh, daemon=True).start()
         threading.Thread(target=_ensure_hype_gifs, daemon=True).start()
+
+        # First-launch onboarding: show a one-time tooltip after 1.5s
+        ud = Foundation.NSUserDefaults.standardUserDefaults()
+        if not ud.boolForKey_("floaty.onboardingShown"):
+            ud.setBool_forKey_(True, "floaty.onboardingShown")
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                1.5, self, "showOnboardingTip:", None, False
+            )
 
         # Heartbeat: keep panel always on top regardless of what else happens
         Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
@@ -1887,6 +1921,18 @@ class AppDelegate(AppKit.NSObject):
             err = str(e)
             self._run_on_main(lambda: setattr(self._content_view, '_checking_off', False))
             self._run_on_main(lambda: self._content_view.setError_(err))
+
+    def showOnboardingTip_(self, timer):
+        """Show a one-time native notification explaining how to use the widget."""
+        try:
+            import subprocess
+            subprocess.run([
+                "osascript", "-e",
+                'display notification "Right-click the widget for options — Refresh, Add Task, and more." '
+                'with title "👋 Welcome to Floaty!"'
+            ], check=False)
+        except Exception:
+            pass
 
     def menuRefresh_(self, sender):
         self.scheduleImmediateRefresh()
