@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V7
+.Trashes
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Local config (never commit credentials)
+.taskfloat/
+config.json
+
+# Logs
+*.log
+
+# py2app / packaging
+*.dmg
+*.app
+
+# Old Swift experiment
+Package.swift
+Sources/
+.build/
