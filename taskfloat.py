@@ -1279,6 +1279,16 @@ class ContentView(AppKit.NSView):
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
+        fi = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Send Feedback", "handleFeedback:", "")
+        fi.setTarget_(self)
+        menu.addItem_(fi)
+
+        bi = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Report a Bug", "handleBug:", "")
+        bi.setTarget_(self)
+        menu.addItem_(bi)
+
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+
         hi = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide Floaty", "hideFloaty:", "")
         hi.setTarget_(delegate)
         menu.addItem_(hi)
@@ -1293,6 +1303,22 @@ class ContentView(AppKit.NSView):
         delegate = AppKit.NSApp.delegate()
         if delegate:
             delegate.scheduleImmediateRefresh()
+
+    def handleFeedback_(self, sender):
+        import urllib.parse
+        subject = urllib.parse.quote("Floaty Feedback")
+        body = urllib.parse.quote("Hi Julian,\n\nHere's some feedback about Floaty:\n\n")
+        AppKit.NSWorkspace.sharedWorkspace().openURL_(
+            AppKit.NSURL.URLWithString_(f"mailto:sta.julian@gmail.com?subject={subject}&body={body}")
+        )
+
+    def handleBug_(self, sender):
+        import urllib.parse
+        subject = urllib.parse.quote("Floaty Bug Report")
+        body = urllib.parse.quote("Hi Julian,\n\nI found a bug in Floaty:\n\n**What happened:**\n\n**What I expected:**\n\n**macOS version:**\n")
+        AppKit.NSWorkspace.sharedWorkspace().openURL_(
+            AppKit.NSURL.URLWithString_(f"mailto:sta.julian@gmail.com?subject={subject}&body={body}")
+        )
 
     def acceptsFirstMouse_(self, event):
         return True
