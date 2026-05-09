@@ -792,8 +792,12 @@ document.addEventListener('mouseup', () => {
   widget.style.animation = 'float-idle 3.5s ease-in-out infinite';
 });
 
-// Touch support
+// Touch support — only intercept when widget is actually visible
+let isTouchDragging = false;
+
 widget.addEventListener('touchstart', e => {
+  // If widget is hidden (mobile breakpoint), don't interfere with page scroll
+  if (window.getComputedStyle(widget).display === 'none') return;
   const t = e.touches[0];
   const r = widget.getBoundingClientRect();
   startX = t.clientX; startY = t.clientY;
@@ -803,10 +807,12 @@ widget.addEventListener('touchstart', e => {
   widget.style.top = origY + 'px';
   widget.style.right = 'auto';
   widget.style.animation = 'none';
+  isTouchDragging = true;
   e.preventDefault();
 }, { passive: false });
 
 document.addEventListener('touchmove', e => {
+  if (!isTouchDragging) return;  // let page scroll through normally
   const t = e.touches[0];
   const dx = t.clientX - startX;
   const dy = t.clientY - startY;
@@ -816,6 +822,8 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 
 document.addEventListener('touchend', () => {
+  if (!isTouchDragging) return;
+  isTouchDragging = false;
   widget.style.animation = 'float-idle 3.5s ease-in-out infinite';
   const hint = widget.querySelector('.drag-hint');
   if (hint) hint.style.opacity = '0';
