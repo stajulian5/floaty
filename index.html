@@ -96,8 +96,19 @@
       transition: opacity .2s; white-space: nowrap;
     }
     .copy-btn:hover { opacity: .85; }
+    .download-btn {
+      display: inline-block;
+      background: var(--accent); color: #fff; text-decoration: none;
+      padding: 16px 36px; border-radius: 12px;
+      font-size: 18px; font-weight: 700;
+      box-shadow: 0 8px 32px rgba(99,91,255,.4);
+      transition: opacity .2s, transform .2s;
+      margin-bottom: 16px;
+    }
+    .download-btn:hover { opacity: .9; transform: translateY(-2px); }
     .hero-note { font-size: 13px; color: var(--muted); }
     .hero-note a { color: var(--muted); }
+    .hero-subnote { font-size: 13px; color: var(--muted); margin-top: 6px; }
 
     /* ── Widget preview ── */
     .preview {
@@ -238,11 +249,13 @@
   <h1>Your calendar,<br/><em>always visible</em></h1>
   <p>A tiny floating widget that shows your current Google Calendar event — or the next one. Floats over every app, on every Space.</p>
 
-  <div class="install-box" id="install">
-    <div class="install-cmd">curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash</div>
-    <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
-  </div>
-  <p class="hero-note">macOS 12+ · Python 3 (pre-installed) · <a href="https://github.com/stajulian5/floaty">View source ↗</a></p>
+  <a class="download-btn" id="install"
+     href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
+    ⬇️ &nbsp;Download Floaty — Free
+  </a>
+  <p class="hero-note">macOS 12+ &nbsp;·&nbsp; 680 KB &nbsp;·&nbsp; <a href="https://github.com/stajulian5/floaty">View source ↗</a></p>
+  <p class="hero-subnote">Open the DMG · drag to Applications · double-click 🚀<br/>
+  <span style="font-size:12px;opacity:.6">First launch: right-click → Open if macOS asks for confirmation</span></p>
 </section>
 
 <!-- Widget preview -->
@@ -319,22 +332,22 @@
     <div class="step">
       <div class="step-num">1</div>
       <div class="step-content">
-        <h3>Run the install command</h3>
-        <p>Paste <code>curl -fsSL …/install.sh | bash</code> in Terminal. It installs dependencies and sets Floaty to launch at login.</p>
+        <h3>Download &amp; install</h3>
+        <p>Download the DMG, open it, and drag Floaty into your Applications folder. Done.</p>
       </div>
     </div>
     <div class="step">
       <div class="step-num">2</div>
       <div class="step-content">
         <h3>Sign in with Google</h3>
-        <p>Your browser opens to Google's authorization page. Grant Calendar and Tasks access — that's it.</p>
+        <p>Your browser opens to Google's sign-in page. Authorize Calendar and Tasks access — that's it.</p>
       </div>
     </div>
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-content">
         <h3>Floaty appears</h3>
-        <p>The widget shows up on your screen. Drag it to your preferred spot and get back to work.</p>
+        <p>The widget shows up on your screen. Drag it wherever you like — it stays there forever.</p>
       </div>
     </div>
   </div>
@@ -350,10 +363,11 @@
 <div class="cta">
   <h2>Start floating 🚀</h2>
   <p>Free, open source, no account needed.</p>
-  <div class="install-box">
-    <div class="install-cmd">curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash</div>
-    <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
-  </div>
+  <a class="download-btn"
+     href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
+    ⬇️ &nbsp;Download Floaty — Free
+  </a>
+  <p class="hero-subnote" style="margin-top:12px">Open the DMG · drag to Applications · double-click</p>
 </div>
 
 <!-- Footer -->

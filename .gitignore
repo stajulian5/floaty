@@ -21,9 +21,9 @@ config.json
 # Logs
 *.log
 
-# py2app / packaging
+# Packaging artifacts (built fresh per release)
 *.dmg
-*.app
+Floaty.app/
 
 # Old Swift experiment
 Package.swift
