@@ -40,6 +40,33 @@ import Security
 
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
+UPDATE_URL = "https://raw.githubusercontent.com/stajulian5/floaty/main/taskfloat.py"
+VERSION = "1.0.0"  # bump this on every release
+
+
+def _auto_update() -> None:
+    """Check GitHub for a newer version and restart if one is found. Runs in background."""
+    def _check():
+        try:
+            req = urllib.request.Request(
+                UPDATE_URL,
+                headers={"User-Agent": "Floaty-updater/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                new_src = resp.read().decode("utf-8")
+            # Extract VERSION from the downloaded source
+            for line in new_src.splitlines():
+                if line.startswith("VERSION = "):
+                    remote_ver = line.split('"')[1]
+                    if remote_ver != VERSION:
+                        # Write new version over ourselves then restart
+                        this_file = Path(__file__).resolve()
+                        this_file.write_text(new_src)
+                        os.execv(sys.executable, [sys.executable] + sys.argv)
+                    break
+        except Exception:
+            pass  # silently skip — no internet, GitHub down, etc.
+    threading.Thread(target=_check, daemon=True).start()
 REDIRECT_URI = "http://localhost:8765/callback"
 OAUTH_SCOPE = (
     "https://www.googleapis.com/auth/calendar.events "
@@ -1509,6 +1536,7 @@ class AppDelegate(AppKit.NSObject):
 
     def applicationDidFinishLaunching_(self, notification):
         self._refresh_timer = None
+        _auto_update()  # check for updates silently in background
 
         # Restore crushed history and today's count
         ud = Foundation.NSUserDefaults.standardUserDefaults()
