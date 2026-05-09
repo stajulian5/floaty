@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Floaty — Stay on track. Even when life isn't.</title>
-  <meta name="description" content="Floaty is the widget that brings you back. A tiny floating macOS widget that keeps your Google Calendar always in sight." />
+  <meta name="description" content="Floaty is the widget that brings you back. A tiny floating macOS widget that keeps your Google Tasks &amp; Calendar always in sight." />
   <script data-goatcounter="https://floaty.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -136,6 +136,26 @@
     .btn-secondary:hover { border-color: var(--ink); color: var(--ink); }
 
     .hero-note { font-size: 12px; color: var(--muted); }
+
+    /* ── Integration badges ── */
+    .hero-integrations {
+      display: inline-flex; align-items: center; gap: 10px;
+      margin: 0 auto 36px;
+      flex-wrap: wrap; justify-content: center;
+    }
+    .integration-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 999px; padding: 7px 16px;
+      font-size: 13px; font-weight: 600; color: var(--ink2);
+      box-shadow: var(--shadow);
+    }
+    .integration-badge img {
+      width: 18px; height: 18px; object-fit: contain; display: block;
+    }
+    .integration-plus {
+      font-size: 16px; font-weight: 700; color: var(--muted);
+    }
 
     /* ── Draggable widget ── */
     #floaty-widget {
@@ -487,8 +507,19 @@
 
     <p class="hero-tagline">
       <strong>Floaty is the widget that brings you back.</strong><br/>
-      A tiny floating window that keeps your Google Calendar always in sight — no matter what pulls you away.
+      A tiny floating window that keeps your Google Tasks &amp; Calendar always in sight — no matter what pulls you away.
     </p>
+    <div class="hero-integrations">
+      <span class="integration-badge">
+        <img src="logos/google-calendar.svg" alt="Google Calendar" />
+        Google Calendar
+      </span>
+      <span class="integration-plus">+</span>
+      <span class="integration-badge">
+        <img src="logos/google-tasks.svg" alt="Google Tasks" />
+        Google Tasks
+      </span>
+    </div>
 
     <div class="hero-actions">
       <a class="btn-primary" id="install"
@@ -508,7 +539,7 @@
   <div class="marquee-inner">
     <!-- duplicated for seamless loop -->
     <span class="marquee-item"><span class="marquee-dot">✦</span> Always on top</span>
-    <span class="marquee-item"><span class="marquee-dot">✦</span> Google Calendar sync</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Google Tasks &amp; Calendar</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> One-click check-off</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Drag anywhere</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Auto-updates</span>
@@ -516,7 +547,7 @@
     <span class="marquee-item"><span class="marquee-dot">✦</span> Open source</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Free forever</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Always on top</span>
-    <span class="marquee-item"><span class="marquee-dot">✦</span> Google Calendar sync</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Google Tasks &amp; Calendar</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> One-click check-off</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Drag anywhere</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Auto-updates</span>
@@ -574,7 +605,7 @@
     <div class="feature-card">
       <div class="fc-icon">🔄</div>
       <h3>Always current</h3>
-      <p>Syncs with Google Calendar every minute. Current event, next event, or your task list — always fresh.</p>
+      <p>Syncs with Google Tasks &amp; Calendar every minute. Current event, next task, next meeting — always fresh.</p>
     </div>
     <div class="feature-card">
       <div class="fc-icon">✏️</div>
@@ -658,7 +689,7 @@
     <div>
       <div class="section-eyebrow">Privacy</div>
       <h2>Your data never leaves your Mac.</h2>
-      <p style="margin-bottom:20px">Floaty has no backend. Your calendar goes directly from Google to your screen — full stop.</p>
+      <p style="margin-bottom:20px">Floaty has no backend. Your tasks and calendar data go directly from Google to your screen — full stop.</p>
       <a href="privacy.html">Read the privacy policy →</a>
     </div>
     <div class="privacy-cards">
