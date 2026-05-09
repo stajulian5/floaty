@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floaty — Google Calendar widget for macOS</title>
+  <meta name="description" content="A tiny floating widget for macOS that shows your current Google Calendar event. Floats over every app, across every Space." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d14;
+      --surface: #16161f;
+      --border: rgba(255,255,255,0.08);
+      --pill: rgba(255,255,255,0.92);
+      --accent: #635bff;
+      --accent2: #ff6b6b;
+      --orange: #ff9f43;
+      --text: #e8e8f0;
+      --muted: #8888a8;
+      --radius: 14px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 40px;
+      background: rgba(13,13,20,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+    .nav-logo span { font-size: 22px; }
+    .nav-link {
+      color: var(--muted); text-decoration: none; font-size: 14px;
+      transition: color .2s;
+    }
+    .nav-link:hover { color: var(--text); }
+    .nav-install {
+      background: var(--accent); color: #fff; text-decoration: none;
+      padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      transition: opacity .2s;
+    }
+    .nav-install:hover { opacity: .85; }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99,91,255,.15) 0%, transparent 70%);
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(99,91,255,.15); border: 1px solid rgba(99,91,255,.3);
+      color: #a89fff; font-size: 12px; font-weight: 600; letter-spacing: .06em;
+      padding: 5px 14px; border-radius: 999px; margin-bottom: 28px;
+      text-transform: uppercase;
+    }
+    .hero h1 {
+      font-size: clamp(40px, 7vw, 80px);
+      font-weight: 800; letter-spacing: -.03em; line-height: 1.05;
+      margin-bottom: 24px;
+    }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero p {
+      font-size: clamp(16px, 2vw, 20px); color: var(--muted);
+      max-width: 520px; margin: 0 auto 48px;
+    }
+    .install-box {
+      display: flex; align-items: center; gap: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+      max-width: 560px; width: 100%; margin: 0 auto 16px;
+    }
+    .install-cmd {
+      flex: 1; padding: 14px 20px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 13px; color: #a8d8a8;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .copy-btn {
+      background: var(--accent); color: #fff; border: none; cursor: pointer;
+      padding: 14px 20px; font-size: 13px; font-weight: 600;
+      transition: opacity .2s; white-space: nowrap;
+    }
+    .copy-btn:hover { opacity: .85; }
+    .hero-note { font-size: 13px; color: var(--muted); }
+    .hero-note a { color: var(--muted); }
+
+    /* ── Widget preview ── */
+    .preview {
+      padding: 0 24px 100px;
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+    .widget {
+      background: rgba(22,22,30,0.95);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 14px 18px;
+      width: 320px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.05);
+    }
+    .widget-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0;
+    }
+    .widget-row + .widget-row { border-top: 1px solid rgba(255,255,255,.07); }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .dot-red { background: #ff6b6b; box-shadow: 0 0 8px #ff6b6b88; }
+    .dot-orange { background: #ff9f43; box-shadow: 0 0 8px #ff9f4388; }
+    .badge { font-size: 10px; font-weight: 700; letter-spacing: .08em; flex-shrink: 0; }
+    .badge-red { color: #ff6b6b; }
+    .badge-orange { color: #ff9f43; }
+    .widget-info { flex: 1; min-width: 0; }
+    .widget-title { font-size: 13px; font-weight: 600; color: #fff; }
+    .widget-time { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .check-circle {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.2);
+      flex-shrink: 0; cursor: pointer;
+    }
+
+    /* ── Features ── */
+    .section {
+      padding: 100px 24px;
+      max-width: 1100px; margin: 0 auto;
+    }
+    .section-label {
+      font-size: 12px; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+    }
+    .section h2 {
+      font-size: clamp(28px, 4vw, 44px); font-weight: 800;
+      letter-spacing: -.02em; margin-bottom: 16px;
+    }
+    .section-sub { color: var(--muted); font-size: 18px; max-width: 480px; margin-bottom: 60px; }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      transition: border-color .2s, transform .2s;
+    }
+    .feature-card:hover { border-color: rgba(99,91,255,.4); transform: translateY(-2px); }
+    .feature-icon { font-size: 28px; margin-bottom: 14px; }
+    .feature-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── How it works ── */
+    .steps { display: flex; flex-direction: column; gap: 32px; max-width: 600px; }
+    .step { display: flex; gap: 20px; align-items: flex-start; }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; flex-shrink: 0;
+    }
+    .step-content h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .step-content p { font-size: 14px; color: var(--muted); }
+    .step-content code {
+      font-family: "SF Mono", monospace; font-size: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 2px 8px; border-radius: 6px; color: #a8d8a8;
+    }
+
+    /* ── Privacy strip ── */
+    .privacy-strip {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 60px 24px;
+      text-align: center;
+    }
+    .privacy-strip h2 { font-size: 28px; font-weight: 800; margin-bottom: 12px; }
+    .privacy-strip p { color: var(--muted); max-width: 500px; margin: 0 auto; font-size: 16px; }
+
+    /* ── CTA ── */
+    .cta {
+      padding: 120px 24px;
+      text-align: center;
+      background: radial-gradient(ellipse 60% 60% at 50% 100%, rgba(99,91,255,.12) 0%, transparent 70%);
+    }
+    .cta h2 { font-size: clamp(28px, 4vw, 48px); font-weight: 800; letter-spacing: -.02em; margin-bottom: 16px; }
+    .cta p { color: var(--muted); font-size: 18px; margin-bottom: 40px; }
+    .cta .install-box { margin: 0 auto; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 32px 40px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      color: var(--muted); font-size: 13px; flex-wrap: wrap; gap: 12px;
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 600px) {
+      nav { padding: 14px 20px; }
+      .nav-link { display: none; }
+      footer { justify-content: center; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-logo"><span>🚀</span> Floaty</div>
+  <a class="nav-link" href="#features">Features</a>
+  <a class="nav-install" href="#install">Install free</a>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-badge">🍎 macOS · Free · Open source</div>
+  <h1>Your calendar,<br/><em>always visible</em></h1>
+  <p>A tiny floating widget that shows your current Google Calendar event — or the next one. Floats over every app, on every Space.</p>
+
+  <div class="install-box" id="install">
+    <div class="install-cmd">curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash</div>
+    <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
+  </div>
+  <p class="hero-note">macOS 12+ · Python 3 (pre-installed) · <a href="https://github.com/stajulian5/floaty">View source ↗</a></p>
+</section>
+
+<!-- Widget preview -->
+<div class="preview">
+  <div class="widget">
+    <div class="widget-row">
+      <div class="dot dot-red"></div>
+      <span class="badge badge-red">NOW</span>
+      <div class="widget-info">
+        <div class="widget-title">Team standup</div>
+        <div class="widget-time">9:00 – 9:30 AM</div>
+      </div>
+      <div class="check-circle"></div>
+    </div>
+    <div class="widget-row">
+      <div class="dot dot-orange"></div>
+      <span class="badge badge-orange">NEXT</span>
+      <div class="widget-info">
+        <div class="widget-title">Product review</div>
+        <div class="widget-time">Starts in 28 min</div>
+      </div>
+      <div class="check-circle"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<div class="section" id="features">
+  <div class="section-label">Features</div>
+  <h2>Everything you need,<br/>nothing you don't</h2>
+  <p class="section-sub">Floaty stays out of your way until you need it.</p>
+
+  <div class="features">
+    <div class="feature-card">
+      <div class="feature-icon">📌</div>
+      <h3>Always on top</h3>
+      <p>Floats above every app and every Space. Never buried under windows again.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">✅</div>
+      <h3>One-click check-off</h3>
+      <p>Click the circle to mark a task done. Confetti included.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📅</div>
+      <h3>Live calendar sync</h3>
+      <p>Shows your current event, or the next one coming up. Refreshes every minute.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">✏️</div>
+      <h3>Add tasks instantly</h3>
+      <p>Hit + to add a task to Google Tasks without leaving what you're doing.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🖱️</div>
+      <h3>Drag anywhere</h3>
+      <p>Move it wherever it's least in your way. Position saved across restarts.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔒</div>
+      <h3>Private by design</h3>
+      <p>Your Mac talks directly to Google. No servers, no tracking, no middlemen.</p>
+    </div>
+  </div>
+</div>
+
+<!-- How it works -->
+<div class="section">
+  <div class="section-label">Setup</div>
+  <h2>Up and running<br/>in 3 minutes</h2>
+  <p class="section-sub" style="margin-bottom:48px">One command handles everything.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Run the install command</h3>
+        <p>Paste <code>curl -fsSL …/install.sh | bash</code> in Terminal. It installs dependencies and sets Floaty to launch at login.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Sign in with Google</h3>
+        <p>Your browser opens to Google's authorization page. Grant Calendar and Tasks access — that's it.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Floaty appears</h3>
+        <p>The widget shows up on your screen. Drag it to your preferred spot and get back to work.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Privacy -->
+<div class="privacy-strip">
+  <h2>🔒 Your data stays on your Mac</h2>
+  <p>Floaty talks directly to Google's APIs from your computer. No data ever passes through a third-party server. Tokens are stored in your macOS Keychain. <a href="privacy.html" style="color:var(--accent)">Privacy policy →</a></p>
+</div>
+
+<!-- CTA -->
+<div class="cta">
+  <h2>Start floating 🚀</h2>
+  <p>Free, open source, no account needed.</p>
+  <div class="install-box">
+    <div class="install-cmd">curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash</div>
+    <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <div>🚀 Floaty — made with ☕ by <a href="https://github.com/stajulian5">stajulian5</a></div>
+  <div style="display:flex;gap:24px">
+    <a href="https://github.com/stajulian5/floaty">GitHub</a>
+    <a href="privacy.html">Privacy</a>
+  </div>
+</footer>
+
+<script>
+function copyInstall(btn) {
+  const cmd = btn.previousElementSibling.textContent;
+  navigator.clipboard.writeText(cmd).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+</script>
+</body>
+</html>
