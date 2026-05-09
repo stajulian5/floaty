@@ -104,6 +104,9 @@ launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
 ok "Floaty will launch automatically at login"
 
+# ── Analytics ping (no personal data) ───────────────────────────────────────
+curl -sf "https://floaty.goatcounter.com/count?p=/install" -o /dev/null || true
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "  ${BOLD}${GREEN}All done!${NC}"

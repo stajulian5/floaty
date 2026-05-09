@@ -48,6 +48,14 @@ def _auto_update() -> None:
     """Check GitHub for a newer version and restart if one is found. Runs in background."""
     def _check():
         try:
+            # Analytics ping — no personal data, just a counter
+            urllib.request.urlopen(
+                "https://floaty.goatcounter.com/count?p=/launch",
+                timeout=5,
+            )
+        except Exception:
+            pass
+        try:
             req = urllib.request.Request(
                 UPDATE_URL,
                 headers={"User-Agent": "Floaty-updater/1.0"},
