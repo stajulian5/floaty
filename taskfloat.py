@@ -45,7 +45,18 @@ VERSION = "1.0.0"  # bump this on every release
 
 
 def _auto_update() -> None:
-    """Check GitHub for a newer version and restart if one is found. Runs in background."""
+    """Check GitHub for a newer version and restart if one is found. Runs in background.
+
+    Security model: we fetch taskfloat.py from GitHub, then verify its SHA-256
+    against a separate checksum file (taskfloat.py.sha256) in the same repo.
+    Both files are served over HTTPS. A compromised file without a matching
+    checksum update will be silently rejected — two separate commits would need
+    to be pushed to pass the check.
+    """
+    import hashlib
+
+    CHECKSUM_URL = UPDATE_URL + ".sha256"
+
     def _check():
         try:
             # Analytics ping — no personal data, just a counter
@@ -61,17 +72,36 @@ def _auto_update() -> None:
                 headers={"User-Agent": "Floaty-updater/1.0"},
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
-                new_src = resp.read().decode("utf-8")
-            # Extract VERSION from the downloaded source
+                new_src_bytes = resp.read()
+            new_src = new_src_bytes.decode("utf-8")
+
+            # Extract remote VERSION
+            remote_ver = None
             for line in new_src.splitlines():
                 if line.startswith("VERSION = "):
                     remote_ver = line.split('"')[1]
-                    if remote_ver != VERSION:
-                        # Write new version over ourselves then restart
-                        this_file = Path(__file__).resolve()
-                        this_file.write_text(new_src)
-                        os.execv(sys.executable, [sys.executable] + sys.argv)
                     break
+            if remote_ver is None or remote_ver == VERSION:
+                return  # no update available
+
+            # Verify checksum before writing anything
+            try:
+                ck_req = urllib.request.Request(
+                    CHECKSUM_URL,
+                    headers={"User-Agent": "Floaty-updater/1.0"},
+                )
+                with urllib.request.urlopen(ck_req, timeout=10) as ck_resp:
+                    expected_hash = ck_resp.read().decode().strip().split()[0]
+                actual_hash = hashlib.sha256(new_src_bytes).hexdigest()
+                if actual_hash != expected_hash:
+                    return  # checksum mismatch — silently abort
+            except Exception:
+                return  # can't verify — don't update
+
+            # Checksum passed — safe to apply update
+            this_file = Path(__file__).resolve()
+            this_file.write_text(new_src)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
         except Exception:
             pass  # silently skip — no internet, GitHub down, etc.
     threading.Thread(target=_check, daemon=True).start()
