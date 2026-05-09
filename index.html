@@ -3,24 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Floaty — Google Calendar widget for macOS</title>
-  <meta name="description" content="A tiny floating widget for macOS that shows your current Google Calendar event. Floats over every app, across every Space." />
+  <title>Floaty — Stay on track. Even when life isn't.</title>
+  <meta name="description" content="Floaty is the widget that brings you back. A tiny floating macOS widget that keeps your Google Calendar always in sight." />
   <script data-goatcounter="https://floaty.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #08080f;
-      --surface: #111118;
-      --card: #13131c;
-      --border: rgba(255,255,255,0.07);
-      --accent: #6c63ff;
-      --accent-glow: rgba(108,99,255,0.35);
-      --red: #ff5f5f;
-      --orange: #ff9f43;
-      --green: #2ecc71;
-      --text: #f0f0f8;
-      --muted: #7070a0;
+      --bg: #f9f8f5;
+      --white: #ffffff;
+      --ink: #0e0e0e;
+      --ink2: #3a3a3a;
+      --muted: #888888;
+      --accent: #5b4fff;
+      --accent-light: #eeecff;
+      --red: #ff4f4f;
+      --orange: #ff9500;
+      --border: #e8e8e8;
+      --shadow: 0 2px 12px rgba(0,0,0,.07), 0 1px 3px rgba(0,0,0,.05);
+      --shadow-lg: 0 20px 60px rgba(0,0,0,.12), 0 4px 16px rgba(0,0,0,.06);
       --radius: 16px;
     }
 
@@ -28,331 +29,356 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
+      color: var(--ink);
+      line-height: 1.5;
       overflow-x: hidden;
-    }
-
-    /* ── Subtle grid background ── */
-    body::before {
-      content: '';
-      position: fixed; inset: 0; z-index: 0;
-      background-image:
-        linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
-      background-size: 48px 48px;
-      pointer-events: none;
     }
 
     /* ── Nav ── */
     nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
       display: flex; align-items: center; justify-content: space-between;
-      padding: 0 48px; height: 60px;
-      background: rgba(8,8,15,0.8);
+      padding: 0 48px; height: 58px;
+      background: rgba(249,248,245,0.88);
       backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--border);
     }
     .nav-logo {
       display: flex; align-items: center; gap: 8px;
-      font-weight: 700; font-size: 17px; letter-spacing: -.01em;
+      font-weight: 800; font-size: 18px; letter-spacing: -.02em; color: var(--ink);
+      text-decoration: none;
     }
-    .nav-links { display: flex; gap: 32px; }
+    .nav-links { display: flex; gap: 28px; }
     .nav-links a {
-      color: var(--muted); text-decoration: none; font-size: 14px;
-      transition: color .2s;
+      color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500;
+      transition: color .15s;
     }
-    .nav-links a:hover { color: var(--text); }
-    .nav-download {
-      background: var(--accent); color: #fff; text-decoration: none;
-      padding: 7px 16px; border-radius: 8px; font-size: 14px; font-weight: 600;
-      transition: opacity .15s, transform .15s;
-      box-shadow: 0 0 20px var(--accent-glow);
+    .nav-links a:hover { color: var(--ink); }
+    .nav-btn {
+      background: var(--ink); color: #fff; text-decoration: none;
+      padding: 8px 18px; border-radius: 999px; font-size: 14px; font-weight: 700;
+      transition: background .15s, transform .15s;
+      letter-spacing: -.01em;
     }
-    .nav-download:hover { opacity: .9; transform: translateY(-1px); }
+    .nav-btn:hover { background: var(--accent); transform: translateY(-1px); }
 
     /* ── Hero ── */
     .hero {
-      position: relative; z-index: 1;
       min-height: 100vh;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      align-items: center;
-      gap: 60px;
-      max-width: 1200px; margin: 0 auto;
-      padding: 100px 48px 60px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      position: relative;
+      overflow: hidden;
     }
-    .hero-glow {
-      position: absolute;
-      width: 700px; height: 700px;
-      background: radial-gradient(circle, rgba(108,99,255,.12) 0%, transparent 70%);
-      top: 50%; left: 40%; transform: translate(-50%, -50%);
-      pointer-events: none; z-index: 0;
+
+    /* Soft color blobs */
+    .blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(80px); opacity: .5; pointer-events: none; z-index: 0;
     }
-    .hero-left { position: relative; z-index: 1; }
+    .blob-1 { width: 500px; height: 500px; background: #dcd8ff; top: -100px; right: -100px; }
+    .blob-2 { width: 400px; height: 400px; background: #ffd8d8; bottom: 0; left: -80px; }
+    .blob-3 { width: 300px; height: 300px; background: #d8f0ff; bottom: 100px; right: 10%; }
+
+    .hero-inner { position: relative; z-index: 1; max-width: 780px; }
+
     .hero-badge {
       display: inline-flex; align-items: center; gap: 6px;
-      background: rgba(108,99,255,.12); border: 1px solid rgba(108,99,255,.25);
-      color: #a89fff; font-size: 11px; font-weight: 700; letter-spacing: .08em;
-      padding: 5px 12px; border-radius: 999px; margin-bottom: 24px;
-      text-transform: uppercase;
+      background: var(--white); border: 1px solid var(--border);
+      color: var(--ink2); font-size: 12px; font-weight: 600;
+      padding: 6px 14px; border-radius: 999px; margin-bottom: 32px;
+      box-shadow: var(--shadow);
     }
+
     .hero h1 {
-      font-size: clamp(36px, 4vw, 58px);
-      font-weight: 800; letter-spacing: -.03em; line-height: 1.08;
-      margin-bottom: 20px;
+      font-size: clamp(48px, 8vw, 96px);
+      font-weight: 900; letter-spacing: -.04em; line-height: 1.0;
+      color: var(--ink); margin-bottom: 8px;
     }
-    .hero h1 em { font-style: normal; color: var(--accent); }
-    .hero-sub {
-      font-size: 17px; color: var(--muted); line-height: 1.7;
-      max-width: 420px; margin-bottom: 40px;
+    .hero h1 .accent { color: var(--accent); }
+    .hero h1 .wavy {
+      display: inline-block;
+      text-decoration: underline;
+      text-decoration-style: wavy;
+      text-decoration-color: var(--red);
+      text-underline-offset: 6px;
     }
-    .hero-actions { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
-    .download-btn {
-      display: inline-flex; align-items: center; gap: 10px;
-      background: var(--accent); color: #fff; text-decoration: none;
-      padding: 14px 28px; border-radius: 12px;
-      font-size: 16px; font-weight: 700;
-      box-shadow: 0 4px 24px var(--accent-glow);
-      transition: opacity .15s, transform .15s;
-    }
-    .download-btn:hover { opacity: .9; transform: translateY(-2px); }
-    .download-btn svg { width: 18px; height: 18px; fill: currentColor; }
-    .hero-meta {
-      font-size: 12px; color: var(--muted);
-      display: flex; gap: 16px; flex-wrap: wrap;
-    }
-    .hero-meta span { display: flex; align-items: center; gap: 4px; }
 
-    /* ── Floating widget mockup ── */
-    .hero-right {
-      position: relative; z-index: 1;
+    .hero-tagline {
+      font-size: clamp(18px, 2.5vw, 24px);
+      color: var(--ink2); font-weight: 500;
+      margin: 20px auto 44px;
+      max-width: 520px; line-height: 1.5;
+    }
+    .hero-tagline strong { color: var(--ink); font-weight: 700; }
+
+    .hero-actions {
       display: flex; align-items: center; justify-content: center;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
     }
-    .mac-screen {
-      width: 100%; max-width: 480px;
-      background: #1a1a2e;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.1);
-      overflow: hidden;
-      box-shadow: 0 40px 80px rgba(0,0,0,.6);
-      aspect-ratio: 16/10;
-      position: relative;
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--ink); color: #fff; text-decoration: none;
+      padding: 14px 28px; border-radius: 999px;
+      font-size: 16px; font-weight: 800; letter-spacing: -.02em;
+      box-shadow: 0 4px 20px rgba(0,0,0,.2);
+      transition: background .15s, transform .15s;
     }
-    .mac-titlebar {
-      height: 28px; background: #222235;
-      display: flex; align-items: center; padding: 0 12px; gap: 6px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
+    .btn-primary:hover { background: var(--accent); transform: translateY(-2px); }
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--muted); text-decoration: none;
+      padding: 14px 20px; border-radius: 999px; font-size: 15px; font-weight: 500;
+      border: 1px solid var(--border); background: var(--white);
+      transition: border-color .15s, color .15s;
     }
-    .mac-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .mac-dot-r { background: #ff5f57; }
-    .mac-dot-y { background: #febc2e; }
-    .mac-dot-g { background: #28c840; }
-    .mac-desktop {
-      position: relative; height: calc(100% - 28px);
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-      overflow: hidden;
-    }
-    /* Fake calendar app in background */
-    .fake-app {
-      position: absolute; inset: 16px;
-      background: rgba(255,255,255,.04);
-      border-radius: 8px;
-      border: 1px solid rgba(255,255,255,.06);
-      padding: 12px;
-    }
-    .fake-app-bar {
-      height: 8px; background: rgba(255,255,255,.06);
-      border-radius: 4px; margin-bottom: 8px; width: 40%;
-    }
-    .fake-rows { display: flex; flex-direction: column; gap: 5px; }
-    .fake-row {
-      height: 6px; background: rgba(255,255,255,.04);
-      border-radius: 3px;
-    }
-    .fake-row:nth-child(2) { width: 80%; }
-    .fake-row:nth-child(3) { width: 60%; }
-    .fake-row:nth-child(4) { width: 75%; }
-    .fake-row:nth-child(5) { width: 50%; }
+    .btn-secondary:hover { border-color: var(--ink); color: var(--ink); }
 
-    /* The floating Floaty widget */
-    .floaty-widget {
-      position: absolute;
-      top: 18px; right: 16px;
-      width: 195px;
-      background: rgba(18,18,26,0.96);
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 14px;
-      padding: 10px 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.04);
-      animation: float 4s ease-in-out infinite;
-    }
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-6px); }
-    }
-    .fw-row {
-      display: flex; align-items: center; gap: 7px;
-      padding: 5px 0;
-    }
-    .fw-row + .fw-row { border-top: 1px solid rgba(255,255,255,.06); }
-    .fw-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-    .fw-dot-red { background: var(--red); box-shadow: 0 0 6px rgba(255,95,95,.6); }
-    .fw-dot-orange { background: var(--orange); box-shadow: 0 0 6px rgba(255,159,67,.6); }
-    .fw-badge { font-size: 8px; font-weight: 800; letter-spacing: .08em; flex-shrink: 0; }
-    .fw-badge-red { color: var(--red); }
-    .fw-badge-orange { color: var(--orange); }
-    .fw-info { flex: 1; min-width: 0; }
-    .fw-title { font-size: 10px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .fw-time { font-size: 8px; color: var(--muted); margin-top: 1px; }
-    .fw-check { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.2); flex-shrink: 0; }
+    .hero-note { font-size: 12px; color: var(--muted); }
 
-    /* ── Divider ── */
-    .divider {
-      position: relative; z-index: 1;
-      height: 1px; background: var(--border);
-      max-width: 1200px; margin: 0 auto;
+    /* ── Draggable widget ── */
+    #floaty-widget {
+      position: fixed;
+      top: 120px; right: 60px;
+      z-index: 500;
+      cursor: grab;
+      user-select: none;
+      animation: float-idle 3.5s ease-in-out infinite;
+      filter: drop-shadow(0 12px 32px rgba(0,0,0,.15));
+      transition: filter .2s;
+    }
+    #floaty-widget.dragging {
+      animation: none;
+      cursor: grabbing;
+      filter: drop-shadow(0 20px 48px rgba(0,0,0,.25));
+    }
+    @keyframes float-idle {
+      0%, 100% { transform: translateY(0px) rotate(-1deg); }
+      50% { transform: translateY(-10px) rotate(0.5deg); }
+    }
+
+    .widget-shell {
+      width: 240px;
+      background: #fff;
+      border: 1px solid rgba(0,0,0,.1);
+      border-radius: 18px;
+      padding: 12px 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.06);
+    }
+    .widget-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 0;
+    }
+    .widget-row + .widget-row {
+      border-top: 1px solid #f0f0f0;
+    }
+    .w-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .w-dot-red { background: var(--red); box-shadow: 0 0 6px rgba(255,79,79,.4); }
+    .w-dot-orange { background: var(--orange); box-shadow: 0 0 6px rgba(255,149,0,.4); }
+    .w-badge { font-size: 9px; font-weight: 800; letter-spacing: .08em; flex-shrink: 0; }
+    .w-badge-red { color: var(--red); }
+    .w-badge-orange { color: var(--orange); }
+    .w-info { flex: 1; min-width: 0; }
+    .w-title { font-size: 12px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .w-time { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .w-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #ddd; flex-shrink: 0; transition: border-color .15s, background .15s; cursor: pointer; }
+    .w-check:hover { border-color: var(--accent); background: var(--accent-light); }
+
+    .drag-hint {
+      text-align: center; margin-top: 7px;
+      font-size: 10px; color: var(--muted);
+      letter-spacing: .02em;
+    }
+
+    /* ── Marquee strip ── */
+    .marquee-wrap {
+      background: var(--ink);
+      color: #fff; padding: 14px 0;
+      overflow: hidden; white-space: nowrap;
+    }
+    .marquee-inner {
+      display: inline-flex; gap: 0;
+      animation: marquee 20s linear infinite;
+    }
+    .marquee-item {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 0 32px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
+    }
+    .marquee-dot { color: var(--accent); font-size: 18px; }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
     }
 
     /* ── Features ── */
     .section {
-      position: relative; z-index: 1;
-      max-width: 1200px; margin: 0 auto;
-      padding: 100px 48px;
+      max-width: 1160px; margin: 0 auto; padding: 100px 40px;
     }
-    .section-label {
-      font-size: 11px; font-weight: 700; letter-spacing: .12em;
-      text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+    .section-eyebrow {
+      display: inline-block;
+      background: var(--accent-light); color: var(--accent);
+      font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+      padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
     }
     .section h2 {
-      font-size: clamp(28px, 3.5vw, 42px); font-weight: 800;
-      letter-spacing: -.025em; margin-bottom: 12px;
+      font-size: clamp(30px, 4vw, 48px); font-weight: 900;
+      letter-spacing: -.03em; line-height: 1.1; margin-bottom: 12px;
     }
-    .section-sub { color: var(--muted); font-size: 17px; margin-bottom: 56px; max-width: 460px; }
+    .section-sub { color: var(--muted); font-size: 17px; max-width: 480px; margin-bottom: 56px; }
 
-    .features {
+    .feature-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1px;
-      background: var(--border);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
+      gap: 16px;
     }
     .feature-card {
-      background: var(--card);
-      padding: 32px 28px;
-      transition: background .2s;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      transition: transform .2s, box-shadow .2s;
     }
-    .feature-card:hover { background: #16161f; }
-    .feature-icon { font-size: 24px; margin-bottom: 16px; }
-    .feature-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+    .fc-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; margin-bottom: 16px;
+      background: var(--accent-light);
+    }
+    .feature-card h3 { font-size: 15px; font-weight: 800; margin-bottom: 6px; letter-spacing: -.01em; }
     .feature-card p { font-size: 13px; color: var(--muted); line-height: 1.65; }
 
     /* ── Steps ── */
-    .steps-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center;
-    }
-    .steps { display: flex; flex-direction: column; gap: 36px; }
-    .step { display: flex; gap: 18px; align-items: flex-start; }
-    .step-num {
-      width: 32px; height: 32px; border-radius: 8px;
-      background: rgba(108,99,255,.15); border: 1px solid rgba(108,99,255,.3);
-      color: var(--accent); font-size: 13px; font-weight: 800;
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .step-content h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
-    .step-content p { font-size: 13px; color: var(--muted); }
-
-    /* Step visual — large widget */
-    .step-visual {
-      display: flex; align-items: center; justify-content: center;
-    }
-    .widget-large {
-      background: rgba(18,18,26,0.98);
-      border: 1px solid rgba(255,255,255,.1);
-      border-radius: 18px;
-      padding: 16px 20px;
-      width: 280px;
-      box-shadow: 0 24px 60px rgba(0,0,0,.5), 0 0 60px rgba(108,99,255,.08);
-      animation: float 4s ease-in-out infinite;
-    }
-    .wl-row {
-      display: flex; align-items: center; gap: 10px; padding: 9px 0;
-    }
-    .wl-row + .wl-row { border-top: 1px solid rgba(255,255,255,.06); }
-    .wl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    .wl-dot-red { background: var(--red); box-shadow: 0 0 8px rgba(255,95,95,.5); }
-    .wl-dot-orange { background: var(--orange); box-shadow: 0 0 8px rgba(255,159,67,.5); }
-    .wl-badge { font-size: 9px; font-weight: 800; letter-spacing: .08em; flex-shrink: 0; }
-    .wl-badge-red { color: var(--red); }
-    .wl-badge-orange { color: var(--orange); }
-    .wl-info { flex: 1; }
-    .wl-title { font-size: 13px; font-weight: 600; color: #fff; }
-    .wl-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .wl-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); flex-shrink: 0; }
-
-    /* ── Privacy ── */
-    .privacy {
-      position: relative; z-index: 1;
-      background: var(--surface);
+    .steps-section {
+      background: var(--white);
       border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border);
     }
-    .privacy-inner {
-      max-width: 1200px; margin: 0 auto; padding: 80px 48px;
+    .steps-inner {
+      max-width: 1160px; margin: 0 auto; padding: 100px 40px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 100px; align-items: center;
+    }
+    .steps-list { display: flex; flex-direction: column; gap: 0; }
+    .step {
+      display: flex; gap: 20px; align-items: flex-start;
+      padding: 28px 0; border-bottom: 1px solid var(--border);
+    }
+    .step:first-child { padding-top: 0; }
+    .step:last-child { border-bottom: none; padding-bottom: 0; }
+    .step-num {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: var(--ink); color: #fff;
+      font-size: 14px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .step h3 { font-size: 16px; font-weight: 800; margin-bottom: 4px; letter-spacing: -.01em; }
+    .step p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .steps-visual {
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .steps-widget {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px 20px;
+      width: 300px;
+      box-shadow: var(--shadow-lg);
+      animation: float-idle 4s ease-in-out infinite;
+    }
+    .sw-row {
+      display: flex; align-items: center; gap: 10px; padding: 10px 0;
+    }
+    .sw-row + .sw-row { border-top: 1px solid #f4f4f4; }
+    .sw-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .sw-dot-red { background: var(--red); }
+    .sw-dot-orange { background: var(--orange); }
+    .sw-badge { font-size: 9px; font-weight: 900; letter-spacing: .08em; flex-shrink: 0; }
+    .sw-badge-red { color: var(--red); }
+    .sw-badge-orange { color: var(--orange); }
+    .sw-info { flex: 1; }
+    .sw-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+    .sw-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .sw-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #e0e0e0; flex-shrink: 0; }
+
+    /* ── Privacy ── */
+    .privacy-section {
+      max-width: 1160px; margin: 0 auto; padding: 100px 40px;
       display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center;
     }
-    .privacy h2 { font-size: 32px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 14px; }
-    .privacy p { color: var(--muted); font-size: 15px; line-height: 1.75; }
-    .privacy-points { display: flex; flex-direction: column; gap: 16px; }
-    .privacy-point {
-      display: flex; gap: 12px; align-items: flex-start;
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 16px 18px;
+    .privacy-section h2 { font-size: clamp(28px, 3.5vw, 40px); font-weight: 900; letter-spacing: -.03em; margin-bottom: 14px; }
+    .privacy-section p { color: var(--muted); font-size: 16px; line-height: 1.75; }
+    .privacy-section a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    .privacy-cards { display: flex; flex-direction: column; gap: 12px; }
+    .privacy-card {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px 20px;
+      display: flex; gap: 14px; align-items: flex-start;
+      transition: transform .15s;
     }
-    .privacy-point-icon { font-size: 20px; flex-shrink: 0; }
-    .privacy-point h4 { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-    .privacy-point p { font-size: 12px; color: var(--muted); }
+    .privacy-card:hover { transform: translateX(4px); }
+    .pc-icon { font-size: 22px; flex-shrink: 0; }
+    .pc-title { font-size: 14px; font-weight: 800; margin-bottom: 2px; }
+    .pc-text { font-size: 12px; color: var(--muted); }
 
     /* ── CTA ── */
     .cta {
-      position: relative; z-index: 1;
-      text-align: center;
-      padding: 120px 48px;
-      background: radial-gradient(ellipse 80% 80% at 50% 100%, rgba(108,99,255,.1) 0%, transparent 70%);
+      background: var(--ink); color: #fff;
+      text-align: center; padding: 120px 40px;
+      position: relative; overflow: hidden;
     }
-    .cta h2 { font-size: clamp(32px, 4vw, 52px); font-weight: 800; letter-spacing: -.025em; margin-bottom: 16px; }
-    .cta p { color: var(--muted); font-size: 17px; margin-bottom: 40px; }
-    .cta-note { margin-top: 16px; font-size: 12px; color: var(--muted); }
-    .cta-note a { color: var(--muted); }
+    .cta-blob {
+      position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none;
+    }
+    .cta-blob-1 { width: 500px; height: 500px; background: rgba(91,79,255,.3); top: -100px; left: 10%; }
+    .cta-blob-2 { width: 400px; height: 400px; background: rgba(255,79,79,.15); bottom: -100px; right: 10%; }
+    .cta-inner { position: relative; z-index: 1; }
+    .cta h2 {
+      font-size: clamp(36px, 6vw, 72px); font-weight: 900;
+      letter-spacing: -.04em; line-height: 1.05; margin-bottom: 16px;
+    }
+    .cta h2 span { color: var(--accent); }
+    .cta p { color: rgba(255,255,255,.6); font-size: 18px; margin-bottom: 44px; font-weight: 500; }
+    .btn-cta {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: #fff; color: var(--ink); text-decoration: none;
+      padding: 16px 32px; border-radius: 999px;
+      font-size: 17px; font-weight: 900; letter-spacing: -.02em;
+      box-shadow: 0 8px 32px rgba(0,0,0,.3);
+      transition: transform .15s, box-shadow .15s;
+    }
+    .btn-cta:hover { transform: translateY(-3px); box-shadow: 0 16px 48px rgba(0,0,0,.4); }
+    .cta-note { margin-top: 20px; font-size: 13px; color: rgba(255,255,255,.4); }
+    .cta-note a { color: rgba(255,255,255,.5); }
 
     /* ── Footer ── */
     footer {
-      position: relative; z-index: 1;
       padding: 28px 48px;
       border-top: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
       color: var(--muted); font-size: 13px; flex-wrap: wrap; gap: 12px;
+      background: var(--bg);
     }
-    footer a { color: var(--muted); text-decoration: none; transition: color .2s; }
-    footer a:hover { color: var(--text); }
+    footer a { color: var(--muted); text-decoration: none; transition: color .15s; }
+    footer a:hover { color: var(--ink); }
 
     /* ── Responsive ── */
     @media (max-width: 900px) {
-      .hero { grid-template-columns: 1fr; padding: 100px 24px 60px; gap: 48px; }
-      .hero-right { display: none; }
-      .features { grid-template-columns: 1fr 1fr; }
-      .steps-grid { grid-template-columns: 1fr; gap: 48px; }
-      .step-visual { display: none; }
-      .privacy-inner { grid-template-columns: 1fr; gap: 40px; }
-      nav { padding: 0 24px; }
+      nav { padding: 0 20px; }
       .nav-links { display: none; }
+      #floaty-widget { top: 80px; right: 16px; }
+      .widget-shell { width: 200px; }
+      .steps-inner { grid-template-columns: 1fr; gap: 48px; }
+      .steps-visual { display: none; }
+      .privacy-section { grid-template-columns: 1fr; gap: 40px; }
+      .feature-grid { grid-template-columns: 1fr 1fr; }
       .section { padding: 72px 24px; }
-      footer { padding: 24px; justify-content: center; text-align: center; }
+      footer { padding: 24px; justify-content: center; }
     }
-    @media (max-width: 600px) {
-      .features { grid-template-columns: 1fr; }
+    @media (max-width: 580px) {
+      .feature-grid { grid-template-columns: 1fr; }
+      #floaty-widget { display: none; }
     }
   </style>
 </head>
@@ -360,181 +386,189 @@
 
 <!-- Nav -->
 <nav>
-  <div class="nav-logo">🚀 Floaty</div>
+  <a class="nav-logo" href="#">🚀 Floaty</a>
   <div class="nav-links">
     <a href="#features">Features</a>
     <a href="#setup">Setup</a>
     <a href="privacy.html">Privacy</a>
   </div>
-  <a class="nav-download" href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
+  <a class="nav-btn" href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
     Download free
   </a>
 </nav>
 
-<!-- Hero -->
-<section class="hero">
-  <div class="hero-glow"></div>
-
-  <div class="hero-left">
-    <div class="hero-badge">🍎 macOS · Free · Open source</div>
-    <h1>Your calendar,<br/><em>always in sight</em></h1>
-    <p class="hero-sub">A tiny floating widget that shows what's happening on your calendar right now — or what's next. Stays on top of every app, across every Space.</p>
-
-    <div class="hero-actions">
-      <a class="download-btn" id="install"
-         href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
-        <svg viewBox="0 0 24 24"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
-        Download for macOS — Free
-      </a>
-      <div class="hero-meta">
-        <span>🖥 macOS 12+</span>
-        <span>📦 680 KB</span>
-        <span>⚡ No account needed</span>
-        <span><a href="https://github.com/stajulian5/floaty" style="color:var(--muted)">View source ↗</a></span>
+<!-- Draggable Floaty Widget -->
+<div id="floaty-widget">
+  <div class="widget-shell">
+    <div class="widget-row">
+      <div class="w-dot w-dot-red"></div>
+      <span class="w-badge w-badge-red">NOW</span>
+      <div class="w-info">
+        <div class="w-title">Team standup</div>
+        <div class="w-time">9:00 – 9:30 AM</div>
       </div>
+      <div class="w-check"></div>
+    </div>
+    <div class="widget-row">
+      <div class="w-dot w-dot-orange"></div>
+      <span class="w-badge w-badge-orange">NEXT</span>
+      <div class="w-info">
+        <div class="w-title">Product review</div>
+        <div class="w-time">Starts in 28 min</div>
+      </div>
+      <div class="w-check"></div>
     </div>
   </div>
+  <div class="drag-hint">✦ drag me anywhere</div>
+</div>
 
-  <div class="hero-right">
-    <div class="mac-screen">
-      <div class="mac-titlebar">
-        <div class="mac-dot mac-dot-r"></div>
-        <div class="mac-dot mac-dot-y"></div>
-        <div class="mac-dot mac-dot-g"></div>
-      </div>
-      <div class="mac-desktop">
-        <div class="fake-app">
-          <div class="fake-app-bar"></div>
-          <div class="fake-rows">
-            <div class="fake-row"></div>
-            <div class="fake-row"></div>
-            <div class="fake-row"></div>
-            <div class="fake-row"></div>
-            <div class="fake-row"></div>
-          </div>
-        </div>
-        <!-- Floating Floaty widget -->
-        <div class="floaty-widget">
-          <div class="fw-row">
-            <div class="fw-dot fw-dot-red"></div>
-            <span class="fw-badge fw-badge-red">NOW</span>
-            <div class="fw-info">
-              <div class="fw-title">Team standup</div>
-              <div class="fw-time">9:00 – 9:30 AM</div>
-            </div>
-            <div class="fw-check"></div>
-          </div>
-          <div class="fw-row">
-            <div class="fw-dot fw-dot-orange"></div>
-            <span class="fw-badge fw-badge-orange">NEXT</span>
-            <div class="fw-info">
-              <div class="fw-title">Product review</div>
-              <div class="fw-time">Starts in 28 min</div>
-            </div>
-            <div class="fw-check"></div>
-          </div>
-        </div>
-      </div>
+<!-- Hero -->
+<section class="hero">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+
+  <div class="hero-inner">
+    <div class="hero-badge">🚀 Free · macOS · Open source</div>
+
+    <h1>
+      Stay on track.<br/>
+      Even when <span class="wavy">life</span> isn't.
+    </h1>
+
+    <p class="hero-tagline">
+      <strong>Floaty is the widget that brings you back.</strong><br/>
+      A tiny floating window that keeps your Google Calendar always in sight — no matter what pulls you away.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn-primary" id="install"
+         href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
+        ⬇ Download for macOS — Free
+      </a>
+      <a class="btn-secondary" href="https://github.com/stajulian5/floaty">
+        View source ↗
+      </a>
     </div>
+    <p class="hero-note">macOS 12+ &nbsp;·&nbsp; 680 KB &nbsp;·&nbsp; First launch: right-click → Open</p>
   </div>
 </section>
 
-<div class="divider"></div>
+<!-- Marquee -->
+<div class="marquee-wrap">
+  <div class="marquee-inner">
+    <!-- duplicated for seamless loop -->
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Always on top</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Google Calendar sync</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> One-click check-off</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Drag anywhere</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Auto-updates</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> No tracking</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Open source</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Free forever</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Always on top</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Google Calendar sync</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> One-click check-off</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Drag anywhere</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Auto-updates</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> No tracking</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Open source</span>
+    <span class="marquee-item"><span class="marquee-dot">✦</span> Free forever</span>
+  </div>
+</div>
 
 <!-- Features -->
 <div class="section" id="features">
-  <div class="section-label">Features</div>
-  <h2>Everything you need,<br/>nothing you don't</h2>
-  <p class="section-sub">Floaty is tiny, focused, and gets out of your way.</p>
+  <div class="section-eyebrow">Features</div>
+  <h2>Everything you need.<br/>Nothing in the way.</h2>
+  <p class="section-sub">Floaty is small on purpose. It lives at the edge of your attention, not in the center of it.</p>
 
-  <div class="features">
+  <div class="feature-grid">
     <div class="feature-card">
-      <div class="feature-icon">📌</div>
+      <div class="fc-icon">📌</div>
       <h3>Always on top</h3>
-      <p>Floats above every app, every window, every Space. Your calendar is always one glance away.</p>
+      <p>Floats above every app, on every Space. One glance tells you what's happening — no switching required.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">✅</div>
+      <div class="fc-icon">✅</div>
       <h3>One-click check-off</h3>
-      <p>Click the circle to mark a task done. Confetti. Voice. Back to work.</p>
+      <p>Hit the circle. Task done. Confetti flies. You're back in 2 seconds instead of 2 minutes.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">🔄</div>
-      <h3>Live sync</h3>
-      <p>Refreshes every minute. Current event, next event, or your task list — always up to date.</p>
+      <div class="fc-icon">🔄</div>
+      <h3>Always current</h3>
+      <p>Syncs with Google Calendar every minute. Current event, next event, or your task list — always fresh.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">✏️</div>
-      <h3>Add tasks instantly</h3>
-      <p>Hit + to add a task to Google Tasks without switching apps or breaking focus.</p>
+      <div class="fc-icon">✏️</div>
+      <h3>Capture instantly</h3>
+      <p>Idea hits mid-call? Hit + and dump it. It lands in Google Tasks so nothing slips through.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">🖱️</div>
-      <h3>Drag anywhere</h3>
-      <p>Put it exactly where you want. Top corner, bottom edge — it remembers across restarts.</p>
+      <div class="fc-icon">🖱️</div>
+      <h3>Lives where you want it</h3>
+      <p>Drag it to your corner of choice. Position saved forever — restarts, updates, everything.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">🔄</div>
-      <h3>Auto-updates</h3>
-      <p>Always on the latest version. Updates silently in the background — you never have to do anything.</p>
+      <div class="fc-icon">⚡</div>
+      <h3>Silently updates</h3>
+      <p>Always on the latest version. Updates happen in the background. You never lift a finger.</p>
     </div>
   </div>
 </div>
 
-<div class="divider"></div>
-
-<!-- How it works -->
-<div class="section" id="setup">
-  <div class="steps-grid">
+<!-- Steps -->
+<div class="steps-section" id="setup">
+  <div class="steps-inner">
     <div>
-      <div class="section-label">Setup</div>
-      <h2>Running in<br/>3 minutes</h2>
-      <p class="section-sub">No Terminal. No configuration. Just download and go.</p>
+      <div class="section-eyebrow">Setup</div>
+      <h2>Running in<br/>3 minutes.</h2>
+      <p class="section-sub" style="margin-bottom:48px">No Terminal. No config files. Just download and go.</p>
 
-      <div class="steps">
+      <div class="steps-list">
         <div class="step">
           <div class="step-num">1</div>
-          <div class="step-content">
+          <div>
             <h3>Download &amp; install</h3>
-            <p>Download the DMG, open it, drag Floaty to Applications. That's the whole install.</p>
+            <p>Open the DMG and drag Floaty to Applications. Classic Mac install — done in 10 seconds.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
-          <div class="step-content">
+          <div>
             <h3>Sign in with Google</h3>
-            <p>Your browser opens for a standard Google sign-in. Authorize Calendar and Tasks access.</p>
+            <p>Your browser opens for a standard Google sign-in. Tap Allow for Calendar and Tasks. That's it.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">3</div>
-          <div class="step-content">
-            <h3>Floaty appears</h3>
-            <p>The widget shows up. Drag it to your favorite corner and get back to work.</p>
+          <div>
+            <h3>You're back in the game</h3>
+            <p>Floaty appears. Drag it to your favorite corner. Never lose your place again.</p>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="step-visual">
-      <div class="widget-large">
-        <div class="wl-row">
-          <div class="wl-dot wl-dot-red"></div>
-          <span class="wl-badge wl-badge-red">NOW</span>
-          <div class="wl-info">
-            <div class="wl-title">Team standup</div>
-            <div class="wl-time">9:00 – 9:30 AM</div>
+    <div class="steps-visual">
+      <div class="steps-widget">
+        <div class="sw-row">
+          <div class="sw-dot sw-dot-red"></div>
+          <span class="sw-badge sw-badge-red">NOW</span>
+          <div class="sw-info">
+            <div class="sw-title">Team standup</div>
+            <div class="sw-time">9:00 – 9:30 AM</div>
           </div>
-          <div class="wl-check"></div>
+          <div class="sw-check"></div>
         </div>
-        <div class="wl-row">
-          <div class="wl-dot wl-dot-orange"></div>
-          <span class="wl-badge wl-badge-orange">NEXT</span>
-          <div class="wl-info">
-            <div class="wl-title">Product review</div>
-            <div class="wl-time">Starts in 28 min</div>
+        <div class="sw-row">
+          <div class="sw-dot sw-dot-orange"></div>
+          <span class="sw-badge sw-badge-orange">NEXT</span>
+          <div class="sw-info">
+            <div class="sw-title">Product review</div>
+            <div class="sw-time">Starts in 28 min</div>
           </div>
-          <div class="wl-check"></div>
+          <div class="sw-check"></div>
         </div>
       </div>
     </div>
@@ -542,34 +576,34 @@
 </div>
 
 <!-- Privacy -->
-<div class="privacy">
-  <div class="privacy-inner">
+<div class="section">
+  <div class="privacy-section" style="padding:0">
     <div>
-      <h2>🔒 Your data never leaves your Mac</h2>
-      <p>Floaty has no backend. No servers. No analytics beyond a simple launch counter. Your calendar data flows directly from Google to your screen — that's it.</p>
-      <br/>
-      <a href="privacy.html" style="color:var(--accent); font-size:14px;">Read the privacy policy →</a>
+      <div class="section-eyebrow">Privacy</div>
+      <h2>Your data never leaves your Mac.</h2>
+      <p style="margin-bottom:20px">Floaty has no backend. Your calendar goes directly from Google to your screen — full stop.</p>
+      <a href="privacy.html">Read the privacy policy →</a>
     </div>
-    <div class="privacy-points">
-      <div class="privacy-point">
-        <div class="privacy-point-icon">🔑</div>
+    <div class="privacy-cards">
+      <div class="privacy-card">
+        <div class="pc-icon">🔑</div>
         <div>
-          <h4>Tokens in Keychain</h4>
-          <p>Your Google authorization is stored in macOS Keychain — encrypted, local only.</p>
+          <div class="pc-title">Tokens in Keychain</div>
+          <div class="pc-text">Your Google login is stored in macOS Keychain. Encrypted, local, yours.</div>
         </div>
       </div>
-      <div class="privacy-point">
-        <div class="privacy-point-icon">🚫</div>
+      <div class="privacy-card">
+        <div class="pc-icon">🚫</div>
         <div>
-          <h4>No third-party servers</h4>
-          <p>Your Mac talks directly to Google. Nothing passes through our infrastructure.</p>
+          <div class="pc-title">No third-party servers</div>
+          <div class="pc-text">Your Mac talks directly to Google. Nothing passes through anyone else.</div>
         </div>
       </div>
-      <div class="privacy-point">
-        <div class="privacy-point-icon">👁</div>
+      <div class="privacy-card">
+        <div class="pc-icon">👁</div>
         <div>
-          <h4>Fully open source</h4>
-          <p>Every line of code is on GitHub. See exactly what runs on your machine.</p>
+          <div class="pc-title">Fully open source</div>
+          <div class="pc-text">Every line of code is on GitHub. Read exactly what runs on your Mac.</div>
         </div>
       </div>
     </div>
@@ -578,18 +612,20 @@
 
 <!-- CTA -->
 <div class="cta">
-  <h2>Stop forgetting<br/>what's next</h2>
-  <p>Free. Tiny. Always there.</p>
-  <a class="download-btn" style="display:inline-flex"
-     href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
-    <svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
-    Download for macOS — Free
-  </a>
-  <p class="cta-note">
-    macOS 12+ &nbsp;·&nbsp; 680 KB &nbsp;·&nbsp;
-    <a href="https://github.com/stajulian5/floaty">Open source on GitHub</a>
-    &nbsp;·&nbsp; First launch: right-click → Open if macOS asks
-  </p>
+  <div class="cta-blob cta-blob-1"></div>
+  <div class="cta-blob cta-blob-2"></div>
+  <div class="cta-inner">
+    <h2>Stop losing<br/><span>your place.</span></h2>
+    <p>Free. Tiny. Always there.</p>
+    <a class="btn-cta"
+       href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">
+      ⬇ Download Floaty — Free
+    </a>
+    <p class="cta-note">
+      macOS 12+ &nbsp;·&nbsp; 680 KB &nbsp;·&nbsp;
+      <a href="https://github.com/stajulian5/floaty">Open source ↗</a>
+    </p>
+  </div>
 </div>
 
 <!-- Footer -->
@@ -601,5 +637,81 @@
   </div>
 </footer>
 
+<script>
+// ── Draggable widget ──────────────────────────────────────────────────────────
+const widget = document.getElementById('floaty-widget');
+let isDragging = false;
+let startX, startY, origX, origY;
+let homeX, homeY;
+
+function setHome() {
+  const r = widget.getBoundingClientRect();
+  homeX = r.left;
+  homeY = r.top;
+}
+
+widget.addEventListener('mousedown', e => {
+  isDragging = true;
+  widget.classList.add('dragging');
+  const r = widget.getBoundingClientRect();
+  startX = e.clientX; startY = e.clientY;
+  origX = r.left; origY = r.top;
+  widget.style.animation = 'none';
+  widget.style.position = 'fixed';
+  widget.style.left = origX + 'px';
+  widget.style.top = origY + 'px';
+  widget.style.right = 'auto';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - startX;
+  const dy = e.clientY - startY;
+  widget.style.left = (origX + dx) + 'px';
+  widget.style.top  = (origY + dy) + 'px';
+});
+
+document.addEventListener('mouseup', () => {
+  if (!isDragging) return;
+  isDragging = false;
+  widget.classList.remove('dragging');
+  // Remove the hint after first drag
+  const hint = widget.querySelector('.drag-hint');
+  if (hint) hint.style.opacity = '0';
+  // Resume floating animation
+  widget.style.animation = '';
+  widget.style.animation = 'float-idle 3.5s ease-in-out infinite';
+});
+
+// Touch support
+widget.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  const r = widget.getBoundingClientRect();
+  startX = t.clientX; startY = t.clientY;
+  origX = r.left; origY = r.top;
+  widget.style.position = 'fixed';
+  widget.style.left = origX + 'px';
+  widget.style.top = origY + 'px';
+  widget.style.right = 'auto';
+  widget.style.animation = 'none';
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  const dx = t.clientX - startX;
+  const dy = t.clientY - startY;
+  widget.style.left = (origX + dx) + 'px';
+  widget.style.top  = (origY + dy) + 'px';
+  e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('touchend', () => {
+  widget.style.animation = 'float-idle 3.5s ease-in-out infinite';
+  const hint = widget.querySelector('.drag-hint');
+  if (hint) hint.style.opacity = '0';
+});
+</script>
 </body>
 </html>
