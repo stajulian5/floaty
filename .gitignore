@@ -25,6 +25,8 @@ config.json
 *.dmg
 Floaty.app/
 
+# Keep /gifs tracked (landing page assets)
+
 # Old Swift experiment
 Package.swift
 Sources/

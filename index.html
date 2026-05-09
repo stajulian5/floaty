@@ -211,6 +211,55 @@
       100% { transform: translateX(-50%); }
     }
 
+    /* ── GIF Film Strip ── */
+    .gif-strip-wrap {
+      position: relative;
+      padding: 0 0 20px;
+      overflow: hidden;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .gif-strip {
+      overflow: hidden;
+      padding: 28px 0;
+    }
+    .gif-track {
+      display: flex;
+      gap: 14px;
+      width: max-content;
+      animation: gif-scroll 35s linear infinite;
+    }
+    .gif-track:hover { animation-play-state: paused; }
+    @keyframes gif-scroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .gif-item {
+      width: 180px; height: 140px;
+      border-radius: 14px;
+      overflow: hidden;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .gif-item img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .gif-vignette-left, .gif-vignette-right {
+      position: absolute; top: 0; bottom: 0; width: 160px;
+      z-index: 2; pointer-events: none;
+    }
+    .gif-vignette-left  { left: 0;  background: linear-gradient(to right, var(--bg) 0%, transparent 100%); }
+    .gif-vignette-right { right: 0; background: linear-gradient(to left,  var(--bg) 0%, transparent 100%); }
+    .gif-strip-label {
+      text-align: center; font-size: 13px;
+      color: var(--muted); padding-bottom: 8px;
+      font-style: italic;
+    }
+
     /* ── Features ── */
     .section {
       max-width: 1160px; margin: 0 auto; padding: 100px 40px;
@@ -475,6 +524,34 @@
     <span class="marquee-item"><span class="marquee-dot">✦</span> Open source</span>
     <span class="marquee-item"><span class="marquee-dot">✦</span> Free forever</span>
   </div>
+</div>
+
+<!-- GIF Film Strip -->
+<div class="gif-strip-wrap">
+  <div class="gif-vignette-left"></div>
+  <div class="gif-vignette-right"></div>
+  <div class="gif-strip">
+    <div class="gif-track">
+      <div class="gif-item"><img src="gifs/hype_6.gif" alt="Victory dance" /></div>
+      <div class="gif-item"><img src="gifs/hype_22.gif" alt="Awesome" /></div>
+      <div class="gif-item"><img src="gifs/hype_29.gif" alt="Nailed it" /></div>
+      <div class="gif-item"><img src="gifs/hype_43.gif" alt="YAY" /></div>
+      <div class="gif-item"><img src="gifs/hype_47.gif" alt="Nice" /></div>
+      <div class="gif-item"><img src="gifs/hype_24.gif" alt="Celebration" /></div>
+      <div class="gif-item"><img src="gifs/hype_27.gif" alt="Win" /></div>
+      <div class="gif-item"><img src="gifs/hype_39.gif" alt="Yes" /></div>
+      <!-- duplicate for seamless loop -->
+      <div class="gif-item"><img src="gifs/hype_6.gif" alt="Victory dance" /></div>
+      <div class="gif-item"><img src="gifs/hype_22.gif" alt="Awesome" /></div>
+      <div class="gif-item"><img src="gifs/hype_29.gif" alt="Nailed it" /></div>
+      <div class="gif-item"><img src="gifs/hype_43.gif" alt="YAY" /></div>
+      <div class="gif-item"><img src="gifs/hype_47.gif" alt="Nice" /></div>
+      <div class="gif-item"><img src="gifs/hype_24.gif" alt="Celebration" /></div>
+      <div class="gif-item"><img src="gifs/hype_27.gif" alt="Win" /></div>
+      <div class="gif-item"><img src="gifs/hype_39.gif" alt="Yes" /></div>
+    </div>
+  </div>
+  <p class="gif-strip-label">what it feels like to crush a task 🚀</p>
 </div>
 
 <!-- Features -->
