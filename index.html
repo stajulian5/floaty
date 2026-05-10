@@ -416,6 +416,20 @@
     .sw-title { font-size: 13px; font-weight: 700; color: var(--ink); }
     .sw-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .sw-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #e0e0e0; flex-shrink: 0; }
+    .sw-source-icon { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; opacity: .7; margin-right: 2px; }
+
+    /* Annotated widget wrapper */
+    .steps-annotated { position: relative; display: inline-block; }
+    .sw-annotation {
+      position: absolute; right: -10px;
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--muted); font-style: italic;
+      white-space: nowrap;
+    }
+    .sw-ann-top { top: 14px; transform: translateX(100%); }
+    .sw-ann-bottom { bottom: 14px; transform: translateX(100%); }
+    .sw-arrow { width: 60px; height: 40px; flex-shrink: 0; transform: scaleX(-1); }
+    .sw-arrow-flip { transform: scaleX(-1) scaleY(-1); }
 
     /* ── Privacy ── */
     .privacy-section {
@@ -522,7 +536,6 @@
         <div class="w-title">Team standup</div>
         <div class="w-time">9:00 – 9:30 AM</div>
       </div>
-      <div class="w-check"></div>
     </div>
     <div class="widget-row">
       <div class="w-dot w-dot-orange"></div>
@@ -740,25 +753,47 @@
     </div>
 
     <div class="steps-visual">
-      <div class="steps-widget">
-        <div class="sw-row">
-          <div class="sw-dot sw-dot-red"></div>
-          <span class="sw-badge sw-badge-red">NOW</span>
-          <div class="sw-info">
-            <div class="sw-title">Team standup</div>
-            <div class="sw-time">9:00 – 9:30 AM</div>
+      <div class="steps-annotated">
+
+        <!-- Widget -->
+        <div class="steps-widget">
+          <div class="sw-row">
+            <div class="sw-dot sw-dot-red"></div>
+            <span class="sw-badge sw-badge-red">NOW</span>
+            <div class="sw-info">
+              <div class="sw-title">Team standup</div>
+              <div class="sw-time">9:00 – 9:30 AM</div>
+            </div>
+            <img src="logos/google-calendar.svg" class="sw-source-icon" alt="Calendar" />
           </div>
-          <div class="sw-check"></div>
-        </div>
-        <div class="sw-row">
-          <div class="sw-dot sw-dot-orange"></div>
-          <span class="sw-badge sw-badge-orange">NEXT</span>
-          <div class="sw-info">
-            <div class="sw-title">Product review</div>
-            <div class="sw-time">Starts in 28 min</div>
+          <div class="sw-row">
+            <div class="sw-dot sw-dot-orange"></div>
+            <span class="sw-badge sw-badge-orange">NEXT</span>
+            <div class="sw-info">
+              <div class="sw-title">Submit expense report</div>
+              <div class="sw-time">Due today</div>
+            </div>
+            <img src="logos/google-tasks.svg" class="sw-source-icon" alt="Tasks" />
+            <div class="sw-check"></div>
           </div>
-          <div class="sw-check"></div>
         </div>
+
+        <!-- Annotations -->
+        <div class="sw-annotation sw-ann-top">
+          <svg class="sw-arrow" viewBox="0 0 60 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 36 C10 20, 30 8, 54 6" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" fill="none" stroke-dasharray="0"/>
+            <path d="M48 2 L54 6 L48 10" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <span>from Calendar</span>
+        </div>
+        <div class="sw-annotation sw-ann-bottom">
+          <svg class="sw-arrow sw-arrow-flip" viewBox="0 0 60 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 4 C10 20, 30 32, 54 34" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+            <path d="M48 30 L54 34 L48 38" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <span>from Tasks — click ○ to check off</span>
+        </div>
+
       </div>
     </div>
   </div>
