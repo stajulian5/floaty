@@ -216,6 +216,21 @@
     .w-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #ddd; flex-shrink: 0; transition: border-color .15s, background .15s; cursor: pointer; }
     .w-check:hover { border-color: var(--accent); background: var(--accent-light); }
 
+    .w-add-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 2px 2px;
+      border-top: 1px solid #f0f0f0;
+      cursor: pointer;
+    }
+    .w-add-btn {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--accent-light); color: var(--accent);
+      font-size: 14px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; line-height: 1;
+    }
+    .w-add-label { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+
     .drag-hint {
       text-align: center; margin-top: 7px;
       font-size: 10px; color: var(--muted);
@@ -545,6 +560,10 @@
         <div class="w-time">Starts in 28 min</div>
       </div>
       <div class="w-check"></div>
+    </div>
+    <div class="w-add-row">
+      <span class="w-add-btn">＋</span>
+      <span class="w-add-label">Add task</span>
     </div>
   </div>
   <div class="drag-hint">✦ drag me anywhere</div>
