@@ -963,6 +963,13 @@ document.addEventListener('touchend', () => {
   const hint = widget.querySelector('.drag-hint');
   if (hint) hint.style.opacity = '0';
 });
+
+// Track download button clicks in GoatCounter
+document.querySelectorAll('a[href*="Floaty.dmg"]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    window.goatcounter && window.goatcounter.count({ path: '/download', title: 'DMG Download' });
+  });
+});
 </script>
 </body>
 </html>
