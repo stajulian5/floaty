@@ -431,7 +431,7 @@
     .sw-title { font-size: 13px; font-weight: 700; color: var(--ink); }
     .sw-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .sw-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #e0e0e0; flex-shrink: 0; }
-    .sw-source-icon { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; opacity: .7; margin-right: 2px; }
+    .sw-ann-logo { width: 16px; height: 16px; object-fit: contain; flex-shrink: 0; }
 
     /* Annotated widget wrapper */
     .steps-annotated { position: relative; display: inline-block; }
@@ -774,7 +774,7 @@
     <div class="steps-visual">
       <div class="steps-annotated">
 
-        <!-- Widget -->
+        <!-- Widget — no logos inside, clean -->
         <div class="steps-widget">
           <div class="sw-row">
             <div class="sw-dot sw-dot-red"></div>
@@ -783,7 +783,6 @@
               <div class="sw-title">Team standup</div>
               <div class="sw-time">9:00 – 9:30 AM</div>
             </div>
-            <img src="logos/google-calendar.svg" class="sw-source-icon" alt="Calendar" />
           </div>
           <div class="sw-row">
             <div class="sw-dot sw-dot-orange"></div>
@@ -792,17 +791,17 @@
               <div class="sw-title">Submit expense report</div>
               <div class="sw-time">Due today</div>
             </div>
-            <img src="logos/google-tasks.svg" class="sw-source-icon" alt="Tasks" />
             <div class="sw-check"></div>
           </div>
         </div>
 
-        <!-- Annotations -->
+        <!-- Annotations with logos outside -->
         <div class="sw-annotation sw-ann-top">
           <svg class="sw-arrow" viewBox="0 0 60 40" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 36 C10 20, 30 8, 54 6" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" fill="none" stroke-dasharray="0"/>
             <path d="M48 2 L54 6 L48 10" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
           </svg>
+          <img src="logos/google-calendar.svg" class="sw-ann-logo" alt="Google Calendar" />
           <span>from Calendar</span>
         </div>
         <div class="sw-annotation sw-ann-bottom">
@@ -810,6 +809,7 @@
             <path d="M4 4 C10 20, 30 32, 54 34" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" fill="none"/>
             <path d="M48 30 L54 34 L48 38" stroke="#aaa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
           </svg>
+          <img src="logos/google-tasks.svg" class="sw-ann-logo" alt="Google Tasks" />
           <span>from Tasks — click ○ to check off</span>
         </div>
 
