@@ -522,7 +522,35 @@
     }
     @media (max-width: 580px) {
       .feature-grid { grid-template-columns: 1fr; }
-      #floaty-widget { display: none; }
+      #floaty-widget { top: 64px; right: 10px; transform: scale(0.82); transform-origin: top right; }
+      .widget-shell { width: 180px; }
+    }
+
+    /* Mobile download warning modal */
+    #mobile-warning {
+      display: none;
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(0,0,0,0.6);
+      align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    #mobile-warning.show { display: flex; }
+    .mobile-warning-box {
+      background: #1a1a1a;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 32px 28px;
+      max-width: 340px;
+      text-align: center;
+    }
+    .mobile-warning-box .mw-icon { font-size: 40px; margin-bottom: 16px; }
+    .mobile-warning-box h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; color: #fff; }
+    .mobile-warning-box p { font-size: 15px; color: rgba(255,255,255,0.6); line-height: 1.6; margin-bottom: 24px; }
+    .mw-close {
+      display: inline-block; padding: 12px 28px;
+      background: rgba(255,255,255,0.1); color: #fff;
+      border-radius: 100px; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: none; width: 100%;
     }
   </style>
 </head>
@@ -968,10 +996,32 @@ document.addEventListener('touchend', () => {
 
 // Track download button clicks in GoatCounter
 document.querySelectorAll('a[href*="Floaty.dmg"]').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', (e) => {
     window.goatcounter && window.goatcounter.count({ path: '/download', title: 'DMG Download' });
+    // On mobile/non-Mac: intercept and show warning instead
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isMac = /Macintosh|MacIntel|MacPPC|Mac68K/i.test(navigator.userAgent);
+    if (isMobile || (!isMac && window.innerWidth < 900)) {
+      e.preventDefault();
+      document.getElementById('mobile-warning').classList.add('show');
+    }
   });
 });
+
+document.querySelector('.mw-close') && document.querySelector('.mw-close').addEventListener('click', () => {
+  document.getElementById('mobile-warning').classList.remove('show');
+});
 </script>
+
+<!-- Mobile warning modal -->
+<div id="mobile-warning">
+  <div class="mobile-warning-box">
+    <div class="mw-icon">🖥️</div>
+    <h3>Floaty is for Mac</h3>
+    <p>This app runs on macOS 12 and above. Visit this page on your Mac to download it.</p>
+    <button class="mw-close">Got it</button>
+  </div>
+</div>
+
 </body>
 </html>
