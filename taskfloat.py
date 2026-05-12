@@ -564,9 +564,16 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
     if len(results) < 2 and next_event:
         results.append(next_event)
 
-    # Fallback: if no timed calendar events, show tasks from the Tasks API directly
-    if not results:
-        results = _fetch_task_only_events(config, token)
+    # Fill any remaining empty slots with unscheduled tasks from Tasks API
+    if len(results) < 2:
+        tasks = _fetch_task_only_events(config, token)
+        # Avoid duplicating tasks already shown as calendar events
+        shown_titles = {r["title"].strip().lower() for r in results}
+        for t in tasks:
+            if len(results) >= 2:
+                break
+            if t["title"].strip().lower() not in shown_titles:
+                results.append(t)
 
     return results
 
