@@ -907,7 +907,7 @@ class ConfettiView(AppKit.NSView):
     def _spawn_throw(self):
         w = self.bounds().size.width
         palette = self._palette()
-        for _ in range(2):
+        for _ in range(120):
             p = _CParticle()
             p.x       = random.uniform(w * 0.1, w * 0.9)
             p.y       = random.uniform(0, 15)
@@ -927,7 +927,11 @@ class ConfettiView(AppKit.NSView):
         self._last_t   = now
         self._elapsed += dt
 
-        # Only one throw total
+        # Spawn second throw at t=3
+        throw_idx = int(self._elapsed / 3.0)
+        if self._spawned < 2 and throw_idx >= self._spawned:
+            self._spawn_throw()
+            self._spawned = throw_idx + 1
 
 
         # Update particles
