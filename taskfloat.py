@@ -483,7 +483,7 @@ def _fetch_today_task_titles(config: dict, token: str) -> set[str]:
             # Only include tasks due today or with no due date
             due = task.get("due", "")
             if not due or due.startswith(today_str):
-                t = task.get("title", "").strip()
+                t = task.get("title", "").strip().lower()
                 if t:
                     titles.add(t)
     return titles
@@ -542,7 +542,12 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
             continue
         title = item.get("summary") or "(No title)"
         event_id = item.get("id", "")
-        is_task = title in task_titles
+        # Detect Google Tasks: either via source URL or case-insensitive title match
+        source_url = item.get("source", {}).get("url", "")
+        is_task = (
+            "tasks.google.com" in source_url
+            or title.strip().lower() in task_titles
+        )
         entry = {"title": title, "is_current": False, "start": start, "end": end,
                  "id": event_id, "is_task": is_task}
         if start <= now < end:
