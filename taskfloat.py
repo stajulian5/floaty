@@ -480,9 +480,9 @@ def _fetch_today_task_titles(config: dict, token: str) -> set[str]:
         except Exception:
             continue
         for task in tasks_data.get("items", []):
-            # Only include tasks due today or with no due date
+            # Include tasks due today, overdue, or with no due date
             due = task.get("due", "")
-            if not due or due.startswith(today_str):
+            if not due or due[:10] <= today_str:
                 t = task.get("title", "").strip().lower()
                 if t:
                     titles.add(t)
