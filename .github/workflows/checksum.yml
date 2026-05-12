@@ -2,6 +2,8 @@ name: Update checksum
 
 on:
   push:
+    branches:
+      - main
     paths:
       - taskfloat.py
 
