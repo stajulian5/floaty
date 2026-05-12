@@ -1233,9 +1233,9 @@ class ContentView(AppKit.NSView):
     def _draw_event(self, ev, y, event_idx, p):
         is_task = ev.get("is_task", False)
         if ev["is_current"]:
-            badge_text  = "🚀 NOW" if is_task else "● NOW"
+            badge_text  = "🚀 NOW" if is_task else "📅 NOW"
         else:
-            badge_text  = "🚀 NEXT" if is_task else "▶ NEXT"
+            badge_text  = "🚀 NEXT" if is_task else "📅 NEXT"
         badge_color = self._badge_color(ev["is_current"])
         title = ev["title"]
         max_title = 30 if is_task else 34
