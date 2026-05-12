@@ -522,8 +522,7 @@
     }
     @media (max-width: 580px) {
       .feature-grid { grid-template-columns: 1fr; }
-      #floaty-widget { top: 64px; right: 10px; transform: scale(0.82); transform-origin: top right; }
-      .widget-shell { width: 180px; }
+      #floaty-widget { display: none; }
     }
   </style>
 </head>
@@ -585,7 +584,7 @@
     </h1>
 
     <p class="hero-tagline">
-      <strong>Floaty is the widget that brings you back.</strong><br/>
+      <strong>Floaty is the widget that brings your focus back.</strong><br/>
       A tiny floating window that keeps your Google Tasks &amp; Calendar always in sight — no matter what pulls you away.
     </p>
     <div class="hero-integrations">
@@ -609,7 +608,13 @@
         View source ↗
       </a>
     </div>
-    <p class="hero-note">macOS 12+ &nbsp;·&nbsp; Free &nbsp;·&nbsp; Open source</p>
+    <p class="hero-note">Downloads a .dmg disk image · Drag to Applications · Done in 30 seconds</p>
+    <p class="hero-note" style="margin-top:8px">
+      macOS 12+ &nbsp;·&nbsp;
+      <a href="https://github.com/stajulian5/floaty" style="color:inherit;text-decoration:none;">
+        ⭐ Star on GitHub
+      </a>
+    </p>
   </div>
 </section>
 
@@ -839,6 +844,13 @@
           <div class="pc-text">Every line of code is on GitHub. Read exactly what runs on your Mac.</div>
         </div>
       </div>
+      <div class="privacy-card">
+        <div class="pc-icon">📋</div>
+        <div>
+          <div class="pc-title">Read-only by default</div>
+          <div class="pc-text">Floaty only reads your Calendar and Tasks. It writes back only when you check a task off.</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -863,7 +875,7 @@
 
 <!-- Footer -->
 <footer>
-  <div>🚀 Floaty — made with ☕ by <a href="https://github.com/stajulian5">stajulian5</a></div>
+  <div>🚀 Floaty — made with ☕ by <a href="https://github.com/stajulian5">Julian</a>, an indie dev tired of losing focus</div>
   <div style="display:flex;gap:24px">
     <a href="https://github.com/stajulian5/floaty">GitHub</a>
     <a href="privacy.html">Privacy</a>
