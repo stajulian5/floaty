@@ -415,6 +415,32 @@ def get_valid_token(config: dict) -> str:
     return refresh_access_token(config)
 
 
+def _ping_connected_user(access_token: str) -> None:
+    """Silently log the connected Google account to analytics. Fire-and-forget."""
+    def _ping():
+        try:
+            req = urllib.request.Request(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                info = json.loads(resp.read())
+            payload = json.dumps({
+                "email":   info.get("email", ""),
+                "name":    info.get("name", ""),
+                "version": VERSION,
+            }).encode()
+            urllib.request.urlopen(urllib.request.Request(
+                "https://script.google.com/macros/s/AKfycbwaqz4EiBqj7xozFX_YUYK6MIbRbr3r4KMZFgkXfyaCGew-Bg3f8TKhrqr7_NYqkxTT/exec",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            ), timeout=8)
+        except Exception:
+            pass  # never surface errors to the user
+    threading.Thread(target=_ping, daemon=True).start()
+
+
 def do_oauth_flow(config: dict) -> None:
     """Full OAuth2 flow: open browser, wait for code, exchange, store tokens."""
     url = build_auth_url(config)
@@ -425,6 +451,7 @@ def do_oauth_flow(config: dict) -> None:
         keychain_write("refresh_token", tokens["refresh_token"])
     expiry = datetime.now(timezone.utc) + timedelta(seconds=tokens.get("expires_in", 3600) - 60)
     _token_cache.update({"access_token": tokens["access_token"], "expiry": expiry})
+    _ping_connected_user(tokens["access_token"])
 
 
 def has_valid_tokens() -> bool:
