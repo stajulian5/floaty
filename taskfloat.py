@@ -1173,12 +1173,12 @@ class ContentView(AppKit.NSView):
         self._resize_to_fit()
         self.setNeedsDisplay_(True)
 
-    def setSuccess_(self, msg, duration=1.8):
-        """Show a transient green toast overlay; auto-clears after `duration` seconds."""
+    def setSuccess_(self, msg):
+        """Show a transient green toast overlay; auto-clears after 1.8 seconds."""
         self._toast_text = (msg, AppKit.NSColor.systemGreenColor())
         self.setNeedsDisplay_(True)
         Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            duration, self, "clearToast:", None, False
+            1.8, self, "clearToast:", None, False
         )
 
     def clearToast_(self, _timer_or_none):
@@ -2231,11 +2231,11 @@ class AppDelegate(AppKit.NSObject):
     def openSettings_(self, sender):
         if not hasattr(self, "_settings_win") or not self._settings_win:
             self._settings_win = SettingsWindow.alloc().init()
-        self._settings_win.load_data_(AppDelegate.config)
+        self._settings_win.loadData_(AppDelegate.config)
         AppKit.NSApp.activateIgnoringOtherApps_(True)
         self._settings_win.makeKeyAndOrderFront_(None)
 
-    def apply_widget_size_(self):
+    def _apply_widget_size(self):
         """Resize the floating panel to the new width while keeping the same center."""
         new_w = get_widget_w(AppDelegate.config)
         old_frame = self._panel.frame()
@@ -2474,7 +2474,7 @@ class SettingsWindow(AppKit.NSPanel):
         self._config = {}
         return self
 
-    def load_data_(self, config):
+    def loadData_(self, config):
         """Populate controls from config and fetch calendar/task list data in background."""
         self._config = config
 
@@ -2499,8 +2499,8 @@ class SettingsWindow(AppKit.NSPanel):
                 calendars = fetch_calendar_list(config)
                 task_lists = fetch_task_lists_all(config)
                 def _populate():
-                    self._populate_calendars_(calendars)
-                    self._populate_task_lists_(task_lists)
+                    self._populate_calendars(calendars)
+                    self._populate_task_lists(task_lists)
                 AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(_populate)
             except Exception as e:
                 def _error():
@@ -2508,7 +2508,7 @@ class SettingsWindow(AppKit.NSPanel):
                 AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(_error)
         threading.Thread(target=_fetch, daemon=True).start()
 
-    def _populate_calendars_(self, calendars):
+    def _populate_calendars(self, calendars):
         # Remove old checkboxes
         for btn, _ in self._cal_checkboxes:
             btn.removeFromSuperview()
@@ -2543,7 +2543,7 @@ class SettingsWindow(AppKit.NSPanel):
             self._cal_checkboxes.append((btn, cal["id"]))
             y -= 24
 
-    def _populate_task_lists_(self, task_lists):
+    def _populate_task_lists(self, task_lists):
         self._task_popup.removeAllItems()
         self._task_popup.addItemWithTitle_("(Any — search for 🚀 Today)")
         self._task_popup.itemAtIndex_(0).setRepresentedObject_("")
@@ -2589,7 +2589,7 @@ class SettingsWindow(AppKit.NSPanel):
         delegate = AppKit.NSApp.delegate()
         if delegate:
             AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(
-                lambda: delegate.apply_widget_size_()
+                lambda: delegate._apply_widget_size()
             )
 
     def pulsationChanged_(self, sender):

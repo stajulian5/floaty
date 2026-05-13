@@ -48,7 +48,7 @@ if [[ -z "$PYTHON" ]]; then
 fi
 
 # ── Ensure pip is available (quietly) ────────────────────────────────────────
-"$PYTHON" -m ensurepip --upgrade --quiet >> "$LOG" 2>&1 || true
+"$PYTHON" -m ensurepip --upgrade >> "$LOG" 2>&1 || true   # --quiet not supported on Python ≤3.9
 
 # ── Install PyObjC if needed (one-time, ~2 min) ───────────────────────────────
 # Use -S (no user-site) then add user site-packages explicitly so we detect
