@@ -2321,7 +2321,7 @@ def _set_login_item(enabled: bool, app_dir: str | None = None) -> None:
         <string>{binary}</string>
     </array>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
