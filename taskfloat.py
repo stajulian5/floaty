@@ -41,7 +41,7 @@ import Security
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
 UPDATE_URL = "https://raw.githubusercontent.com/stajulian5/floaty/main/taskfloat.py"
-VERSION = "1.0.2"  # bump this on every release
+VERSION = "1.0.5"  # bump this on every release
 
 
 def _auto_update() -> None:
@@ -193,7 +193,9 @@ def keychain_write(key: str, value: str) -> None:
     attrs = dict(query)
     attrs[Security.kSecValueData] = value.encode("utf-8")
     attrs[Security.kSecAttrAccessible] = Security.kSecAttrAccessibleAfterFirstUnlock
-    status = Security.SecItemAdd(attrs, None)
+    raw = Security.SecItemAdd(attrs, None)
+    # PyObjC returns (OSStatus, result) as a tuple; unpack defensively
+    status = raw[0] if isinstance(raw, tuple) else raw
     if status != Security.errSecSuccess:
         print(f"[keychain] write failed for '{key}': {status}", file=sys.stderr)
 
@@ -1280,9 +1282,9 @@ class ContentView(AppKit.NSView):
         # Check circle — only for tasks
         if is_task:
             w = self.bounds().size.width
-            r = 6
-            cx = w - 14
-            cy = y + 26  # align with title text (drawn at y+20, ~12pt font)
+            r = 9
+            cx = w - 16
+            cy = y + BLOCK_H // 2  # vertically centered in the event block
             check_rect = AppKit.NSMakeRect(cx - r, cy - r, r * 2, r * 2)
             self._check_rects.append((event_idx, check_rect))
             circle_path = AppKit.NSBezierPath.bezierPathWithOvalInRect_(
