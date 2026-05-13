@@ -94,35 +94,12 @@ CONFIG
     chmod 600 "$CONFIG_FILE"
 fi
 
-# ── Register LaunchAgent so Floaty starts at login ────────────────────────────
-mkdir -p "$HOME/Library/LaunchAgents"
-if [[ ! -f "$PLIST" ]]; then
-    cat > "$PLIST" << PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.floaty</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$APP_DIR/MacOS/Floaty</string>
-    </array>
-    <key>RunAtLoad</key>
-    <false/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>StandardOutPath</key>
-    <string>$LOG</string>
-    <key>StandardErrorPath</key>
-    <string>$LOG</string>
-</dict>
-</plist>
-PLIST
-    # Just write the plist — don't call launchctl load (it can open System Preferences on newer macOS)
-    # The plist is picked up automatically on next login.
-fi
+# ── Launch at Login ───────────────────────────────────────────────────────────
+# We do NOT auto-register a LaunchAgent on first run — macOS Ventura/Sonoma (13+)
+# shows a surprise "A background item was added" System Settings dialog whenever a
+# new plist lands in ~/Library/LaunchAgents, which confuses first-time users.
+# Instead, the "Launch at Login" toggle in Floaty Settings writes/removes the plist
+# and calls `launchctl bootstrap/bootout` explicitly so the user is always in control.
 
 # ── Bootstrap script outside the sealed app bundle ───────────────────────────
 # The signed bundle must never be modified after signing (breaks Gatekeeper).

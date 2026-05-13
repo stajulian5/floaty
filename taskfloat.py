@@ -41,7 +41,7 @@ import Security
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
 UPDATE_URL = "https://raw.githubusercontent.com/stajulian5/floaty/main/taskfloat.py"
-VERSION = "1.0.5"  # bump this on every release
+VERSION = "1.0.6"  # bump this on every release
 
 
 def _auto_update() -> None:
@@ -230,6 +230,40 @@ def load_config() -> dict:
     if "client_id" not in cfg or "client_secret" not in cfg:
         raise ValueError(f"{CONFIG_PATH} must contain 'client_id' and 'client_secret'")
     return cfg
+
+
+def save_config(cfg: dict) -> None:
+    """Write the full config dict back to CONFIG_PATH."""
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CONFIG_PATH.open("w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def fetch_calendar_list(config: dict) -> list:
+    """Return list of dicts with id, summary, primary keys."""
+    token = get_valid_token(config)
+    req = urllib.request.Request(
+        "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    return [
+        {"id": item["id"], "summary": item.get("summary", item["id"]), "primary": item.get("primary", False)}
+        for item in data.get("items", [])
+    ]
+
+
+def fetch_task_lists_all(config: dict) -> list:
+    """Return list of dicts with id, title keys."""
+    token = get_valid_token(config)
+    req = urllib.request.Request(
+        "https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=20",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    return [{"id": item["id"], "title": item.get("title", item["id"])} for item in data.get("items", [])]
 
 
 # ---------------------------------------------------------------------------
@@ -537,24 +571,49 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
         "orderBy": "startTime",
         "maxResults": "20",
     }
-    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
 
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            # Force token refresh
-            _token_cache.clear()
-            token = get_valid_token(config)
-            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    # Determine which calendar IDs to query
+    filter_ids = config.get("calendar_ids", [])
+    if filter_ids:
+        cal_ids_to_query = filter_ids
+    else:
+        # Fetch all calendars from calendarList and query each
+        try:
+            cal_list = fetch_calendar_list(config)
+            cal_ids_to_query = [c["id"] for c in cal_list]
+        except Exception:
+            cal_ids_to_query = ["primary"]
+
+    # Fetch events from all relevant calendars
+    all_items = []
+    for cal_id in cal_ids_to_query:
+        safe_cal_id = urllib.parse.quote(cal_id, safe="") if cal_id != "primary" else "primary"
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{safe_cal_id}/events?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read())
-        else:
-            raise
+            all_items.extend(data.get("items", []))
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                _token_cache.clear()
+                token = get_valid_token(config)
+                req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read())
+                all_items.extend(data.get("items", []))
+            elif e.code in (403, 404):
+                continue  # skip calendars we can't access
+            else:
+                raise
 
-    items = data.get("items", [])
+    # Sort combined items by start time
+    def _sort_key(item):
+        dt_str = item.get("start", {}).get("dateTime") or item.get("start", {}).get("date", "")
+        return dt_str
+
+    all_items.sort(key=_sort_key)
+    items = all_items
     current_events = []
     next_event = None
 
@@ -718,7 +777,11 @@ def extend_calendar_event(config: dict, event_id: str, new_end: datetime) -> Non
 
 
 def find_today_list_id(config: dict) -> str:
-    """Return the id of the '🚀 Today' task list, creating it if necessary."""
+    """Return the id of the configured task list (or '🚀 Today'), creating it if necessary."""
+    # If user configured a specific task list, use it directly
+    if config.get("task_list_id"):
+        return config["task_list_id"]
+
     token = get_valid_token(config)
     headers = {"Authorization": f"Bearer {token}"}
     req = urllib.request.Request(
@@ -1043,9 +1106,16 @@ def show_confetti(screen=None):
 # AppKit UI
 # ---------------------------------------------------------------------------
 
-WIDGET_W        = 240
 WIDGET_H_SINGLE = 56
 WIDGET_H_DOUBLE = 100
+
+def get_widget_w(config: dict) -> int:
+    """Return widget width based on config setting."""
+    size = config.get("widget_size", "normal")
+    return {"compact": 210, "normal": 240, "large": 275}.get(size, 240)
+
+# Keep a module-level alias so older call-sites that reference WIDGET_W still work
+WIDGET_W = 240  # default; overridden at runtime via get_widget_w(config)
 CORNER_R        = 12
 PADDING_L       = 28   # left text margin (shifted right to make room for "+")
 PLUS_X          = 7    # x position of the always-visible "+" button
@@ -1075,6 +1145,10 @@ class ContentView(AppKit.NSView):
         self._history_visible = False
         self._flash_idx       = None  # event_index with a momentary green-circle flash
         self._toast_text      = None  # (str, NSColor) transient overlay
+        self._pulse_alpha     = 0.0   # 0.0 = no glow; >0 = pulsing green border
+        self._pulse_timer     = None
+        self._pulse_count     = 0
+        self._pulse_direction = 1
         return self
 
     # ---- State updates ---------------------------------------------------
@@ -1112,6 +1186,33 @@ class ContentView(AppKit.NSView):
         self._toast_text = None
         self.setNeedsDisplay_(True)
 
+    def startPulse(self):
+        """Start the green border pulse animation (3 pulses over ~1.5s)."""
+        if self._pulse_timer:
+            self._pulse_timer.invalidate()
+            self._pulse_timer = None
+        self._pulse_alpha = 0.0
+        self._pulse_count = 0
+        self._pulse_direction = 1
+        self._pulse_timer = Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            0.04, self, "pulseTick:", None, True
+        )
+
+    def pulseTick_(self, timer):
+        step = 0.04 * 4.0  # ~4 pulses/sec amplitude change
+        self._pulse_alpha += step * self._pulse_direction
+        if self._pulse_alpha >= 1.0:
+            self._pulse_alpha = 1.0
+            self._pulse_direction = -1
+        elif self._pulse_alpha <= 0.0:
+            self._pulse_alpha = 0.0
+            self._pulse_direction = 1
+            self._pulse_count += 1
+            if self._pulse_count >= 3:
+                timer.invalidate()
+                self._pulse_timer = None
+        self.setNeedsDisplay_(True)
+
     # ---- Window resize ---------------------------------------------------
 
     def _history_extra_height(self):
@@ -1123,14 +1224,16 @@ class ContentView(AppKit.NSView):
         win = self.window()
         if not win:
             return
+        cfg = getattr(AppDelegate, "config", {}) if "AppDelegate" in dir() else {}
+        widget_w = get_widget_w(cfg)
         base_h = WIDGET_H_DOUBLE if len(self._events) >= 2 else WIDGET_H_SINGLE
         h = base_h + self._history_extra_height()
         old = win.frame()
-        if int(old.size.height) == int(h):
+        if int(old.size.height) == int(h) and int(old.size.width) == int(widget_w):
             return
         # Keep the top-left corner fixed when resizing
         new_origin = AppKit.NSPoint(old.origin.x, old.origin.y + old.size.height - h)
-        new_frame  = AppKit.NSMakeRect(new_origin.x, new_origin.y, WIDGET_W, h)
+        new_frame  = AppKit.NSMakeRect(new_origin.x, new_origin.y, widget_w, h)
         if animate:
             def _after():
                 win.orderFrontRegardless()
@@ -1143,7 +1246,7 @@ class ContentView(AppKit.NSView):
             )
         else:
             win.setFrame_display_(new_frame, True)
-        self.setFrame_(AppKit.NSMakeRect(0, 0, WIDGET_W, h))
+        self.setFrame_(AppKit.NSMakeRect(0, 0, widget_w, h))
         win.orderFrontRegardless()  # reassert immediately; completion handler covers animated case
         if not self._history_visible:
             Foundation.NSUserDefaults.standardUserDefaults().setObject_forKey_(
@@ -1263,6 +1366,15 @@ class ContentView(AppKit.NSView):
             tx = (w - ts.size().width) / 2
             ty = h / 2 - ts.size().height / 2
             ts.drawAtPoint_(AppKit.NSPoint(tx, ty))
+
+        # Pulsating green border glow on event start
+        if self._pulse_alpha > 0.001:
+            glow_path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                AppKit.NSInsetRect(bounds, 2, 2), CORNER_R, CORNER_R
+            )
+            glow_path.setLineWidth_(3.0)
+            AppKit.NSColor.systemGreenColor().colorWithAlphaComponent_(self._pulse_alpha).setStroke()
+            glow_path.stroke()
 
     def _badge_color(self, is_current):
         return AppKit.NSColor.systemGreenColor() if is_current else AppKit.NSColor.systemOrangeColor()
@@ -1458,6 +1570,10 @@ class ContentView(AppKit.NSView):
         bi = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Report a Bug", "handleBug:", "")
         bi.setTarget_(self)
         menu.addItem_(bi)
+
+        si = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Settings…", "openSettings:", "")
+        si.setTarget_(delegate)
+        menu.addItem_(si)
 
         menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
@@ -1756,7 +1872,8 @@ class AppDelegate(AppKit.NSObject):
         else:
             AppDelegate._crushed_today = 0
 
-        size = AppKit.NSSize(WIDGET_W, WIDGET_H_SINGLE)
+        widget_w = get_widget_w(AppDelegate.config)
+        size = AppKit.NSSize(widget_w, WIDGET_H_SINGLE)
         origin = self._saved_origin(size)
         frame = AppKit.NSMakeRect(origin.x, origin.y, size.width, size.height)
 
@@ -1779,6 +1896,10 @@ class AppDelegate(AppKit.NSObject):
         add_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("+ Add Task", "menuAddTask:", "")
         add_item.setTarget_(self)
         status_menu.addItem_(add_item)
+
+        settings_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Settings…", "openSettings:", "")
+        settings_item.setTarget_(self)
+        status_menu.addItem_(settings_item)
 
         status_menu.addItem_(AppKit.NSMenuItem.separatorItem())
 
@@ -1919,8 +2040,20 @@ class AppDelegate(AppKit.NSObject):
                         except Exception:
                             pass
 
-            # Track the current event for next cycle
+            # Detect NEXT→NOW transition for pulsation
             current = next((e for e in events if e.get("is_current")), None)
+            prev_id = AppDelegate._last_current_id
+            new_now_transition = (
+                current
+                and current["id"] != prev_id
+                and prev_id is not None  # not first load
+            )
+            # Also detect: previously no current event, now there is one (fresh event start)
+            if current and prev_id is None:
+                # Check if this event just started (within last 2 min)
+                started_recently = (now - current["start"]).total_seconds() < 120
+                new_now_transition = started_recently
+
             if current:
                 if current["id"] != AppDelegate._last_current_id:
                     AppDelegate._last_current_orig_end = current["end"]
@@ -1933,7 +2066,15 @@ class AppDelegate(AppKit.NSObject):
                 AppDelegate._last_current_orig_end = None
                 AppDelegate._last_current_is_task  = False
 
-            self._run_on_main(lambda: self._content_view.setEvents_(events))
+            do_pulse = new_now_transition and AppDelegate.config.get("pulsation", False)
+            cv = self._content_view
+
+            def _update(ev=events, dp=do_pulse):
+                cv.setEvents_(ev)
+                if dp:
+                    cv.startPulse()
+
+            self._run_on_main(_update)
         except Exception as e:
             err = str(e)
             self._run_on_main(lambda: self._content_view.setError_(err))
@@ -2087,6 +2228,28 @@ class AppDelegate(AppKit.NSObject):
     def menuAddTask_(self, sender):
         self.showAddTaskDialog()
 
+    def openSettings_(self, sender):
+        if not hasattr(self, "_settings_win") or not self._settings_win:
+            self._settings_win = SettingsWindow.alloc().init()
+        self._settings_win.load_data_(AppDelegate.config)
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
+        self._settings_win.makeKeyAndOrderFront_(None)
+
+    def apply_widget_size_(self):
+        """Resize the floating panel to the new width while keeping the same center."""
+        new_w = get_widget_w(AppDelegate.config)
+        old_frame = self._panel.frame()
+        old_cx = old_frame.origin.x + old_frame.size.width / 2
+        old_cy = old_frame.origin.y + old_frame.size.height / 2
+        new_x = old_cx - new_w / 2
+        new_frame = AppKit.NSMakeRect(new_x, old_frame.origin.y, new_w, old_frame.size.height)
+        self._panel.setFrame_display_(new_frame, True)
+        self._content_view.setFrame_(AppKit.NSMakeRect(0, 0, new_w, old_frame.size.height))
+        Foundation.NSUserDefaults.standardUserDefaults().setObject_forKey_(
+            {"x": new_x, "y": old_frame.origin.y}, WINDOW_ORIGIN_KEY
+        )
+        self._panel.orderFrontRegardless()
+
     def _saved_origin(self, size) -> AppKit.NSPoint:
         ud = Foundation.NSUserDefaults.standardUserDefaults()
         saved = ud.objectForKey_(WINDOW_ORIGIN_KEY)
@@ -2113,6 +2276,340 @@ class AppDelegate(AppKit.NSObject):
     @staticmethod
     def _run_on_main(fn):
         AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(fn)
+
+
+# ---------------------------------------------------------------------------
+# Login-item helpers (used by SettingsWindow)
+# ---------------------------------------------------------------------------
+
+_FLOATY_PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.floaty.plist"
+_FLOATY_PLIST_LABEL = "com.floaty"
+
+
+def _login_item_enabled() -> bool:
+    """Return True if the Floaty LaunchAgent plist exists (= will start at login)."""
+    return _FLOATY_PLIST_PATH.exists()
+
+
+def _set_login_item(enabled: bool, app_dir: str | None = None) -> None:
+    """Write/remove the LaunchAgent plist. Does NOT call launchctl bootstrap to avoid
+    the macOS Sonoma 'A background item was added' System Settings dialog.
+    The plist is picked up silently at the next login."""
+    if enabled:
+        if _FLOATY_PLIST_PATH.exists():
+            return  # already set
+        _FLOATY_PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Find the Floaty binary path — prefer the running app bundle.
+        if not app_dir:
+            try:
+                # __file__ → ~/.taskfloat/taskfloat.py; bundle MacOS dir is elsewhere
+                bundle = Foundation.NSBundle.mainBundle()
+                app_dir = str(Path(bundle.executablePath()).parent) if bundle else None
+            except Exception:
+                app_dir = None
+        binary = str(Path(app_dir) / "Floaty") if app_dir else "/usr/bin/true"
+        log = str(Path.home() / "Library" / "Logs" / "Floaty.log")
+        plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{_FLOATY_PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{binary}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>{log}</string>
+    <key>StandardErrorPath</key>
+    <string>{log}</string>
+</dict>
+</plist>
+"""
+        _FLOATY_PLIST_PATH.write_text(plist_content)
+    else:
+        # Unload from launchd if currently loaded, then remove plist
+        try:
+            uid = os.getuid()
+            subprocess.run(
+                ["launchctl", "bootout", f"gui/{uid}", str(_FLOATY_PLIST_PATH)],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+        try:
+            _FLOATY_PLIST_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Settings window
+# ---------------------------------------------------------------------------
+
+class SettingsWindow(AppKit.NSPanel):
+    """Settings panel for Floaty. Regular NSPanel (not floating) so it gets keyboard focus."""
+
+    # Layout constants (AppKit: y=0 is bottom of window, y increases upward)
+    _W, _H = 420, 500
+    _M = 20   # horizontal margin
+
+    def init(self):
+        W, H, M = self._W, self._H, self._M
+        self = objc.super(SettingsWindow, self).initWithContentRect_styleMask_backing_defer_(
+            AppKit.NSMakeRect(0, 0, W, H),
+            AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable,
+            AppKit.NSBackingStoreBuffered,
+            False,
+        )
+        if self is None:
+            return None
+        self.setTitle_("Floaty Settings")
+        self.setReleasedWhenClosed_(False)
+        # Center on main screen
+        screen = AppKit.NSScreen.mainScreen()
+        if screen:
+            sf = screen.visibleFrame()
+            ox = sf.origin.x + (sf.size.width - W) / 2
+            oy = sf.origin.y + (sf.size.height - H) / 2
+            self.setFrameOrigin_(AppKit.NSPoint(ox, oy))
+
+        cv = self.contentView()
+        FW = W - M * 2   # usable field width
+
+        def _lbl(text, y, bold=False, size=12):
+            f = AppKit.NSTextField.alloc().initWithFrame_(AppKit.NSMakeRect(M, y, FW, 18))
+            f.setStringValue_(text)
+            f.setFont_(AppKit.NSFont.boldSystemFontOfSize_(size) if bold
+                       else AppKit.NSFont.systemFontOfSize_(size))
+            f.setBezeled_(False); f.setDrawsBackground_(False); f.setEditable_(False)
+            cv.addSubview_(f)
+            return f
+
+        # ── Widget Size  (top section) ────────────────────────────────────
+        _lbl("Widget Size", 464, bold=True)
+        self._seg = AppKit.NSSegmentedControl.alloc().initWithFrame_(AppKit.NSMakeRect(M, 436, FW, 26))
+        self._seg.setSegmentCount_(3)
+        self._seg.setLabel_forSegment_("Compact", 0)
+        self._seg.setLabel_forSegment_("Regular", 1)
+        self._seg.setLabel_forSegment_("Large", 2)
+        self._seg.setTarget_(self)
+        self._seg.setAction_("sizeChanged:")
+        cv.addSubview_(self._seg)
+
+        # ── Calendar ──────────────────────────────────────────────────────
+        _lbl("Calendar", 404, bold=True)
+        # Status label occupies the checkbox zone while data loads / on error
+        self._cal_status_label = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, 310, FW, 90))
+        self._cal_status_label.setStringValue_("Loading calendars…")
+        self._cal_status_label.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self._cal_status_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        self._cal_status_label.setBezeled_(False)
+        self._cal_status_label.setDrawsBackground_(False)
+        self._cal_status_label.setEditable_(False)
+        cv.addSubview_(self._cal_status_label)
+        self._cal_checkboxes = []   # list of (NSButton, calendar_id)
+        # _CAL_TOP_Y: y of first (topmost) checkbox slot, stepping downward
+        self._CAL_TOP_Y = 378
+
+        # ── Task List ─────────────────────────────────────────────────────
+        _lbl("Task List", 278, bold=True)
+        self._task_popup = AppKit.NSPopUpButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, 250, FW, 26))
+        self._task_popup.addItemWithTitle_("(Any — search for 🚀 Today)")
+        self._task_popup.setTarget_(self)
+        self._task_popup.setAction_("taskListChanged:")
+        cv.addSubview_(self._task_popup)
+
+        # ── Pulsation ─────────────────────────────────────────────────────
+        _lbl("Pulsation when event starts", 218, bold=True)
+        self._puls_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, 194, FW, 22))
+        self._puls_btn.setButtonType_(AppKit.NSSwitchButton)
+        self._puls_btn.setTitle_("Animate green border glow when an event transitions to NOW")
+        self._puls_btn.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self._puls_btn.setTarget_(self)
+        self._puls_btn.setAction_("pulsationChanged:")
+        cv.addSubview_(self._puls_btn)
+
+        # ── Launch at Login ───────────────────────────────────────────────
+        _lbl("Launch at Login", 162, bold=True)
+        self._login_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, 138, FW, 22))
+        self._login_btn.setButtonType_(AppKit.NSSwitchButton)
+        self._login_btn.setTitle_("Start Floaty automatically when you log in")
+        self._login_btn.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self._login_btn.setTarget_(self)
+        self._login_btn.setAction_("loginItemChanged:")
+        cv.addSubview_(self._login_btn)
+
+        hint = _lbl("Takes effect at next login.", 118, size=10)
+        hint.setTextColor_(AppKit.NSColor.tertiaryLabelColor())
+
+        # ── Separator ─────────────────────────────────────────────────────
+        sep = AppKit.NSBox.alloc().initWithFrame_(AppKit.NSMakeRect(M, 55, FW, 1))
+        sep.setBoxType_(AppKit.NSBoxSeparator)
+        cv.addSubview_(sep)
+
+        # ── Version label ─────────────────────────────────────────────────
+        ver_lbl = _lbl(f"Floaty  v{VERSION}", 16, size=10)
+        ver_lbl.setTextColor_(AppKit.NSColor.tertiaryLabelColor())
+
+        # ── Done button ───────────────────────────────────────────────────
+        done_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(W - M - 80, 14, 80, 28))
+        done_btn.setTitle_("Done")
+        done_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        done_btn.setKeyEquivalent_("\r")
+        done_btn.setTarget_(self)
+        done_btn.setAction_("doneClicked:")
+        cv.addSubview_(done_btn)
+
+        self._config = {}
+        return self
+
+    def load_data_(self, config):
+        """Populate controls from config and fetch calendar/task list data in background."""
+        self._config = config
+
+        # Widget size
+        size = config.get("widget_size", "normal")
+        idx = {"compact": 0, "normal": 1, "large": 2}.get(size, 1)
+        self._seg.setSelectedSegment_(idx)
+
+        # Pulsation
+        self._puls_btn.setState_(
+            AppKit.NSOnState if config.get("pulsation", False) else AppKit.NSOffState
+        )
+
+        # Launch at Login
+        self._login_btn.setState_(
+            AppKit.NSOnState if _login_item_enabled() else AppKit.NSOffState
+        )
+
+        # Fetch calendars and task lists in background
+        def _fetch():
+            try:
+                calendars = fetch_calendar_list(config)
+                task_lists = fetch_task_lists_all(config)
+                def _populate():
+                    self._populate_calendars_(calendars)
+                    self._populate_task_lists_(task_lists)
+                AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(_populate)
+            except Exception as e:
+                def _error():
+                    self._cal_status_label.setStringValue_(f"Connect Google first ({e})")
+                AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(_error)
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _populate_calendars_(self, calendars):
+        # Remove old checkboxes
+        for btn, _ in self._cal_checkboxes:
+            btn.removeFromSuperview()
+        self._cal_checkboxes = []
+
+        filter_ids = self._config.get("calendar_ids", [])
+        M = self._M
+        FW = self._W - M * 2
+
+        if not calendars:
+            self._cal_status_label.setStringValue_("No calendars found.")
+            return
+
+        self._cal_status_label.setStringValue_("")
+        # Up to 4 checkboxes, stepping downward from _CAL_TOP_Y
+        y = self._CAL_TOP_Y
+        for cal in calendars[:4]:
+            btn = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(M, y, FW, 22))
+            btn.setButtonType_(AppKit.NSSwitchButton)
+            label = cal["summary"]
+            if cal.get("primary"):
+                label += "  (primary)"
+            btn.setTitle_(label)
+            btn.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+            if not filter_ids or cal["id"] in filter_ids:
+                btn.setState_(AppKit.NSOnState)
+            else:
+                btn.setState_(AppKit.NSOffState)
+            btn.setTarget_(self)
+            btn.setAction_("calendarToggled:")
+            self.contentView().addSubview_(btn)
+            self._cal_checkboxes.append((btn, cal["id"]))
+            y -= 24
+
+    def _populate_task_lists_(self, task_lists):
+        self._task_popup.removeAllItems()
+        self._task_popup.addItemWithTitle_("(Any — search for 🚀 Today)")
+        self._task_popup.itemAtIndex_(0).setRepresentedObject_("")
+        for tl in task_lists:
+            self._task_popup.addItemWithTitle_(tl["title"])
+            self._task_popup.lastItem().setRepresentedObject_(tl["id"])
+
+        configured_id = self._config.get("task_list_id", "")
+        if configured_id:
+            for i in range(self._task_popup.numberOfItems()):
+                item = self._task_popup.itemAtIndex_(i)
+                if item.representedObject() == configured_id:
+                    self._task_popup.selectItemAtIndex_(i)
+                    break
+
+    def calendarToggled_(self, sender):
+        checked_ids = [
+            cal_id for btn, cal_id in self._cal_checkboxes
+            if btn.state() == AppKit.NSOnState
+        ]
+        total = len(self._cal_checkboxes)
+        self._config["calendar_ids"] = [] if len(checked_ids) == total else checked_ids
+        save_config(self._config)
+        delegate = AppKit.NSApp.delegate()
+        if delegate:
+            delegate.scheduleImmediateRefresh()
+
+    def taskListChanged_(self, sender):
+        selected = self._task_popup.selectedItem()
+        if selected:
+            list_id = selected.representedObject() or ""
+            self._config["task_list_id"] = list_id
+            save_config(self._config)
+            delegate = AppKit.NSApp.delegate()
+            if delegate:
+                delegate.scheduleImmediateRefresh()
+
+    def sizeChanged_(self, sender):
+        idx = self._seg.selectedSegment()
+        size = ["compact", "normal", "large"][idx]
+        self._config["widget_size"] = size
+        save_config(self._config)
+        delegate = AppKit.NSApp.delegate()
+        if delegate:
+            AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(
+                lambda: delegate.apply_widget_size_()
+            )
+
+    def pulsationChanged_(self, sender):
+        self._config["pulsation"] = (self._puls_btn.state() == AppKit.NSOnState)
+        save_config(self._config)
+
+    def loginItemChanged_(self, sender):
+        enabled = (self._login_btn.state() == AppKit.NSOnState)
+        try:
+            bundle = Foundation.NSBundle.mainBundle()
+            app_dir = str(Path(bundle.executablePath()).parent) if bundle else None
+        except Exception:
+            app_dir = None
+        threading.Thread(
+            target=lambda: _set_login_item(enabled, app_dir),
+            daemon=True,
+        ).start()
+
+    def doneClicked_(self, sender):
+        self.orderOut_(None)
 
 
 # ---------------------------------------------------------------------------
