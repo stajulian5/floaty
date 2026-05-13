@@ -1314,6 +1314,7 @@ class ContentView(AppKit.NSView):
         )
         (p["bg_busy"] if self._checking_off else p["bg"]).setFill()
         pill.fill()
+        pill.setClip()   # clip all drawing to the rounded pill — nothing bleeds outside
 
         # "+" color: green when free, grey when tasks are present
         has_tasks = self._status == "ok" and len(self._events) > 0
@@ -1386,10 +1387,10 @@ class ContentView(AppKit.NSView):
         else:
             badge_text  = "🚀 NEXT" if is_task else "📅 NEXT"
         badge_color = self._badge_color(ev["is_current"])
-        title = ev["title"]
-        max_title = 30 if is_task else 34
-        title = (title[:max_title] + "…") if len(title) > max_title else title
-        self._draw_single_message(badge_text, badge_color, title, format_time_range(ev), y, p)
+        # right_inset: leave room for the check circle on task rows
+        right_inset = 36 if is_task else 12
+        self._draw_single_message(badge_text, badge_color, ev["title"],
+                                  format_time_range(ev), y, p, right_inset=right_inset)
 
         # Check circle — only for tasks
         if is_task:
@@ -1451,7 +1452,15 @@ class ContentView(AppKit.NSView):
         )
         q_str.drawAtPoint_(AppKit.NSPoint(PADDING_L, cy - q_str.size().height / 2))
 
-    def _draw_single_message(self, badge, badge_color, title, subtitle, y, p):
+    def _draw_single_message(self, badge, badge_color, title, subtitle, y, p, right_inset=12):
+        w = self.bounds().size.width
+        text_w = w - PADDING_L - right_inset   # usable width for title / subtitle
+
+        # Paragraph style: single line, truncate tail with "…"
+        ps = AppKit.NSMutableParagraphStyle.alloc().init()
+        ps.setLineBreakMode_(AppKit.NSLineBreakByTruncatingTail)
+        ps.setMaximumLineHeight_(16)
+
         badge_attrs = {
             AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(9, AppKit.NSFontWeightSemibold),
             AppKit.NSForegroundColorAttributeName: badge_color,
@@ -1460,18 +1469,27 @@ class ContentView(AppKit.NSView):
         title_attrs = {
             AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(12, AppKit.NSFontWeightMedium),
             AppKit.NSForegroundColorAttributeName: p["title"],
+            AppKit.NSParagraphStyleAttributeName: ps,
         }
         sub_attrs = {
             AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(10, AppKit.NSFontWeightRegular),
             AppKit.NSForegroundColorAttributeName: p["subtitle"],
+            AppKit.NSParagraphStyleAttributeName: ps,
         }
+
+        # Badge (short — drawAtPoint is fine)
         AppKit.NSAttributedString.alloc().initWithString_attributes_(badge, badge_attrs)\
             .drawAtPoint_(AppKit.NSPoint(PADDING_L, y + 8))
+
+        # Title — draw into a bounded rect so NSLineBreakByTruncatingTail kicks in
+        title_rect = AppKit.NSMakeRect(PADDING_L, y + 20, text_w, 16)
         AppKit.NSAttributedString.alloc().initWithString_attributes_(title, title_attrs)\
-            .drawAtPoint_(AppKit.NSPoint(PADDING_L, y + 20))
+            .drawInRect_(title_rect)
+
         if subtitle:
+            sub_rect = AppKit.NSMakeRect(PADDING_L, y + 34, text_w, 14)
             AppKit.NSAttributedString.alloc().initWithString_attributes_(subtitle, sub_attrs)\
-                .drawAtPoint_(AppKit.NSPoint(PADDING_L, y + 34))
+                .drawInRect_(sub_rect)
 
     # ---- Drag ------------------------------------------------------------
 
