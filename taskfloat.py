@@ -41,7 +41,7 @@ import Security
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
 UPDATE_URL = "https://raw.githubusercontent.com/stajulian5/floaty/main/taskfloat.py"
-VERSION = "1.0.6"  # bump this on every release
+VERSION = "1.0.7"  # bump this on every release
 
 
 def _auto_update() -> None:
