@@ -1381,30 +1381,34 @@ class ContentView(AppKit.NSView):
         return AppKit.NSColor.systemGreenColor() if is_current else AppKit.NSColor.systemOrangeColor()
 
     def _draw_event(self, ev, y, event_idx, p):
-        is_task = ev.get("is_task", False)
-        if ev["is_current"]:
-            badge_text  = "🚀 NOW" if is_task else "📅 NOW"
+        is_task    = ev.get("is_task", False)
+        is_current = ev["is_current"]
+        # Check circle only makes sense for the active NOW task — not future ones
+        show_check = is_task and is_current
+
+        if is_current:
+            badge_text = "🚀 NOW" if is_task else "📅 NOW"
         else:
-            badge_text  = "🚀 NEXT" if is_task else "📅 NEXT"
-        badge_color = self._badge_color(ev["is_current"])
-        # right_inset: leave room for the check circle on task rows
-        right_inset = 36 if is_task else 12
+            badge_text = "🚀 NEXT" if is_task else "📅 NEXT"
+        badge_color = self._badge_color(is_current)
+
+        # Reserve right margin for check circle only when it will be drawn
+        right_inset = 36 if show_check else 12
         self._draw_single_message(badge_text, badge_color, ev["title"],
                                   format_time_range(ev), y, p, right_inset=right_inset)
 
-        # Check circle — only for tasks
-        if is_task:
+        # Check circle — only for the currently active task
+        if show_check:
             w = self.bounds().size.width
             r = 9
             cx = w - 16
-            cy = y + BLOCK_H // 2  # vertically centered in the event block
+            cy = y + BLOCK_H // 2
             check_rect = AppKit.NSMakeRect(cx - r, cy - r, r * 2, r * 2)
             self._check_rects.append((event_idx, check_rect))
             circle_path = AppKit.NSBezierPath.bezierPathWithOvalInRect_(
                 AppKit.NSInsetRect(check_rect, 1, 1)
             )
             if self._flash_idx == event_idx:
-                # Momentary filled green circle on click
                 AppKit.NSColor.systemGreenColor().setFill()
                 circle_path.fill()
             else:
