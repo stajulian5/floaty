@@ -5,16 +5,12 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUNDLED_SCRIPT="$APP_DIR/Resources/taskfloat.py"
 SCRIPT="$HOME/.taskfloat/taskfloat.py"   # runs from here — outside sealed bundle
 LOG="$HOME/Library/Logs/Floaty.log"
-PLIST="$HOME/Library/LaunchAgents/com.floaty.plist"
 
 mkdir -p "$HOME/Library/Logs"
 
 # ── Find a real Python 3 ─────────────────────────────────────────────────────
-# /usr/bin/python3 on a fresh Mac is a tiny Apple stub (~167 bytes) that shows
-# the Xcode CLT install dialog instead of running. We detect it by file size:
-# the stub is < 10 KB; a real Python is > 100 KB.
-# We prefer Homebrew / pyenv installs first, then fall back to the system one
-# only if it's actually real.
+# /usr/bin/python3 on a fresh Mac is a tiny stub (~167 bytes) that pops an
+# Xcode install dialog. Detect by file size: stub < 10 KB, real binary > 100 KB.
 
 PYTHON=""
 
@@ -23,7 +19,7 @@ _is_real_python() {
     [[ -x "$p" ]] || return 1
     local sz
     sz=$(stat -f%z "$p" 2>/dev/null || echo 0)
-    [[ "$sz" -gt 10000 ]] || return 1   # stub is ~167 B; real binary > 100 KB
+    [[ "$sz" -gt 10000 ]] || return 1
     "$p" -c "import sys; exit(0)" 2>/dev/null || return 1
     return 0
 }
@@ -39,20 +35,57 @@ for candidate in \
     fi
 done
 
+# ── No Python found — try to auto-install via Homebrew, else guide the user ──
 if [[ -z "$PYTHON" ]]; then
-    choice=$(osascript -e 'display alert "Floaty needs Python 3" message "Python 3 was not found on your Mac.\n\nClick \"Install Python\" to open the download page, install it, then reopen Floaty." as critical buttons {"Cancel", "Install Python"} default button "Install Python"' 2>/dev/null)
-    if echo "$choice" | grep -q "Install Python"; then
-        open "https://www.python.org/downloads/"
+
+    # Try Homebrew first — silent auto-install, no user action needed
+    BREW=""
+    for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        [[ -x "$b" ]] && BREW="$b" && break
+    done
+
+    if [[ -n "$BREW" ]]; then
+        osascript -e 'display notification "Installing Python — about 1 minute…" with title "🚀 Floaty"' 2>/dev/null
+        "$BREW" install python3 --quiet >> "$LOG" 2>&1
+        for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+            if _is_real_python "$candidate"; then
+                PYTHON="$candidate"
+                break
+            fi
+        done
     fi
-    exit 1
+
+    # Still no Python — show a friendly, non-technical guide
+    if [[ -z "$PYTHON" ]]; then
+        BTN=$(osascript << 'APPLESCRIPT' 2>/dev/null
+display dialog "Floaty needs one free tool called Python 3 before it can run.
+
+Here's what to do — it only takes 2 minutes:
+
+  1.  Click  \"Download Python\"  below
+  2.  Open the downloaded file and click Continue → Install
+  3.  Come back and open Floaty again
+
+That's it — you'll never need to do this again!" \
+with title "Quick one-time setup" \
+buttons {"Not now", "Download Python →"} \
+default button "Download Python →" \
+with icon note
+return button returned of result
+APPLESCRIPT
+)
+        if [[ "$BTN" == *"Download Python"* ]]; then
+            # Link directly to the macOS installer page
+            open "https://www.python.org/downloads/macos/"
+        fi
+        exit 1
+    fi
 fi
 
-# ── Ensure pip is available (quietly) ────────────────────────────────────────
+# ── Ensure pip is available ───────────────────────────────────────────────────
 "$PYTHON" -m ensurepip --upgrade >> "$LOG" 2>&1 || true   # --quiet not supported on Python ≤3.9
 
 # ── Install PyObjC if needed (one-time, ~2 min) ───────────────────────────────
-# Use -S (no user-site) then add user site-packages explicitly so we detect
-# --user installs reliably regardless of the Python distribution.
 _can_import_appkit() {
     USER_SITE=$("$PYTHON" -m site --user-site 2>/dev/null)
     "$PYTHON" -c "
@@ -65,20 +98,48 @@ import AppKit
 }
 
 if ! _can_import_appkit; then
-    osascript -e 'display notification "Setting up Floaty for the first time — this takes about 2 minutes. Please wait…" with title "🚀 Floaty"'
 
-    # Try --user first; fall back to --break-system-packages (Python 3.11+)
+    # Show a friendly progress dialog in the background.
+    # It auto-dismisses after 5 min (giving up after 300) or when we kill it.
+    osascript << 'APPLESCRIPT' &
+display dialog "Getting Floaty ready — this only happens once ⏳
+
+Downloading a few components in the background.
+Takes about 2 minutes depending on your internet speed.
+
+This window will close automatically when done.
+Feel free to use your Mac while you wait!" \
+with title "🚀 Floaty — First-time setup" \
+buttons {"OK"} default button "OK" \
+giving up after 300 \
+with icon note
+APPLESCRIPT
+    DIALOG_PID=$!
+
+    # Install PyObjC — try each method in order
     "$PYTHON" -m pip install --quiet --user pyobjc >> "$LOG" 2>&1 || \
     "$PYTHON" -m pip install --quiet --user --break-system-packages pyobjc >> "$LOG" 2>&1 || \
     "$PYTHON" -m pip install --quiet pyobjc >> "$LOG" 2>&1 || true
 
+    # Dismiss the dialog
+    kill "$DIALOG_PID" 2>/dev/null
+    wait "$DIALOG_PID" 2>/dev/null
+
     if ! _can_import_appkit; then
-        ERR=$(tail -6 "$LOG" 2>/dev/null | tr '\n' ' ')
-        osascript -e "display alert \"Floaty couldn't start\" message \"Setup failed. This sometimes fixes itself — try reopening Floaty.\n\nIf it keeps happening, email sta.julian@gmail.com and paste this:\n${ERR}\" as critical"
+        osascript << 'APPLESCRIPT' 2>/dev/null
+display dialog "Floaty couldn't finish setting up.
+
+The most common fix is simply to try opening Floaty again.
+
+If it keeps happening, email sta.julian@gmail.com — I'll sort it out quickly!" \
+with title "Setup didn't complete" \
+buttons {"OK"} default button "OK" \
+with icon caution
+APPLESCRIPT
         exit 1
     fi
 
-    osascript -e 'display notification "Right-click the widget anytime for options." with title "✅ Floaty is ready!"'
+    osascript -e 'display notification "Right-click the widget anytime to add tasks, refresh, or access settings." with title "✅ Floaty is ready!"' 2>/dev/null
 fi
 
 # ── Write shared OAuth config if not already present ─────────────────────────
@@ -95,15 +156,11 @@ CONFIG
 fi
 
 # ── Launch at Login ───────────────────────────────────────────────────────────
-# We do NOT auto-register a LaunchAgent on first run — macOS Ventura/Sonoma (13+)
-# shows a surprise "A background item was added" System Settings dialog whenever a
-# new plist lands in ~/Library/LaunchAgents, which confuses first-time users.
-# Instead, the "Launch at Login" toggle in Floaty Settings writes/removes the plist
-# and calls `launchctl bootstrap/bootout` explicitly so the user is always in control.
+# Not auto-registered — macOS Ventura/Sonoma shows a "background item added"
+# System Settings popup when any plist lands in LaunchAgents. Users opt in
+# via the "Launch at Login" toggle in Floaty Settings instead.
 
 # ── Bootstrap script outside the sealed app bundle ───────────────────────────
-# The signed bundle must never be modified after signing (breaks Gatekeeper).
-# We copy taskfloat.py to ~/.taskfloat/ on first run; auto-updates write there.
 mkdir -p "$HOME/.taskfloat"
 if [[ ! -f "$SCRIPT" ]]; then
     cp "$BUNDLED_SCRIPT" "$SCRIPT"
