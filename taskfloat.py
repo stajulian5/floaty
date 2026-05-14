@@ -584,7 +584,7 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
         except Exception:
             cal_ids_to_query = ["primary"]
 
-    # Fetch events from all relevant calendars
+    # Fetch events from all relevant calendars, tagging each item with its source cal_id
     all_items = []
     for cal_id in cal_ids_to_query:
         safe_cal_id = urllib.parse.quote(cal_id, safe="") if cal_id != "primary" else "primary"
@@ -593,6 +593,8 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read())
+            for item in data.get("items", []):
+                item["_cal_id"] = cal_id   # remember which calendar this came from
             all_items.extend(data.get("items", []))
         except urllib.error.HTTPError as e:
             if e.code == 401:
@@ -601,6 +603,8 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
                 req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     data = json.loads(resp.read())
+                for item in data.get("items", []):
+                    item["_cal_id"] = cal_id
                 all_items.extend(data.get("items", []))
             elif e.code in (403, 404):
                 continue  # skip calendars we can't access
@@ -629,13 +633,33 @@ def fetch_current_or_next_event(config: dict) -> dict | None:
         if not start or not end:
             continue
         title = item.get("summary") or "(No title)"
+        title_lower = title.strip().lower()
         event_id = item.get("id", "")
-        # Detect Google Tasks: either via source URL or case-insensitive title match
+
+        # Detect whether this Calendar API event originated from Google Tasks.
+        # Tasks appear in calendars whose ID ends with "@tasks", or with a
+        # source.url pointing to tasks.google.com, or organizer "Tasks".
         source_url = item.get("source", {}).get("url", "")
-        is_task = (
-            "tasks.google.com" in source_url
-            or title.strip().lower() in task_titles
+        item_cal_id = item.get("_cal_id", "")
+        organizer_name = item.get("organizer", {}).get("displayName", "")
+        is_from_tasks_cal = (
+            "@tasks" in item_cal_id
+            or "tasks.google.com" in source_url
+            or organizer_name == "Tasks"
         )
+
+        if is_from_tasks_cal:
+            # This event was created by Google Tasks.
+            # Only show it if the task is still incomplete (present in task_titles).
+            # Completed tasks are absent from task_titles (showCompleted=false).
+            if title_lower not in task_titles:
+                continue   # ← completed task — hide it
+            is_task = True
+        else:
+            # Regular calendar event; still tag as task if title matches an
+            # incomplete task (covers cases where the task syncs without metadata).
+            is_task = title_lower in task_titles
+
         entry = {"title": title, "is_current": False, "start": start, "end": end,
                  "id": event_id, "is_task": is_task}
         if start <= now < end:
@@ -1383,22 +1407,18 @@ class ContentView(AppKit.NSView):
     def _draw_event(self, ev, y, event_idx, p):
         is_task    = ev.get("is_task", False)
         is_current = ev["is_current"]
-        # Check circle only makes sense for the active NOW task — not future ones
-        show_check = is_task and is_current
 
-        if is_current:
-            badge_text = "🚀 NOW" if is_task else "📅 NOW"
-        else:
-            badge_text = "🚀 NEXT" if is_task else "📅 NEXT"
+        badge_text  = ("🚀 NOW"  if is_task else "📅 NOW")  if is_current else \
+                      ("🚀 NEXT" if is_task else "📅 NEXT")
         badge_color = self._badge_color(is_current)
 
-        # Reserve right margin for check circle only when it will be drawn
-        right_inset = 36 if show_check else 12
+        # Reserve right margin for the check circle on task rows
+        right_inset = 36 if is_task else 12
         self._draw_single_message(badge_text, badge_color, ev["title"],
                                   format_time_range(ev), y, p, right_inset=right_inset)
 
-        # Check circle — only for the currently active task
-        if show_check:
+        # Check circle — shown for ALL tasks (NOW and NEXT), never for calendar events
+        if is_task:
             w = self.bounds().size.width
             r = 9
             cx = w - 16
