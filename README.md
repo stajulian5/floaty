@@ -8,17 +8,24 @@ A tiny floating widget for macOS that shows your current Google Calendar event �
 
 ## Install
 
+Download `Floaty.dmg` from [Releases](https://github.com/stajulian5/floaty/releases/latest), open it, drag Floaty to Applications, and launch. No Python installation required.
+
+<details>
+<summary>Developer / legacy install</summary>
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash
 ```
 
-That's it. The script:
+The script:
 - Installs the Python dependency (PyObjC — macOS native bindings)
 - Downloads Floaty
 - Sets it to launch automatically at login
 - Opens your browser to sign in with Google
 
-**Requirements:** macOS 12+ · Python 3.9+ (pre-installed on macOS)
+</details>
+
+**System requirements:** macOS 12 Monterey or later. No other dependencies.
 
 ---
 
@@ -26,9 +33,10 @@ That's it. The script:
 
 | Badge | Meaning |
 |---|---|
-| 🔴 **NOW** | An event is happening right now |
-| ⏭ **NEXT** | Your next upcoming event |
-| *(task icon)* | A task from your Google Tasks list |
+| 🚀 **NOW** | A task happening right now |
+| 📅 **NOW** | A calendar event happening right now |
+| 🚀 **NEXT** | Your next upcoming task |
+| 📅 **NEXT** | Your next upcoming calendar event |
 
 ---
 
@@ -56,6 +64,8 @@ curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/uninstall.sh
 
 Floaty connects directly from your Mac to Google's APIs. No data passes through any server — it's just your Mac talking to Google. OAuth tokens are stored in your macOS Keychain.
 
+Floaty uses anonymous launch analytics (GoatCounter). On first sign-in, your Google email is stored to count connected users. No data is sold or shared with third parties.
+
 ---
 
 ## Troubleshooting
@@ -77,6 +87,5 @@ launchctl kickstart -k gui/$(id -u)/com.taskfloat
 ```
 
 **Update to latest version:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/stajulian5/floaty/main/install.sh | bash
-```
+
+Download the latest `Floaty.dmg` from [Releases](https://github.com/stajulian5/floaty/releases/latest) and drag Floaty to Applications, replacing the existing copy.

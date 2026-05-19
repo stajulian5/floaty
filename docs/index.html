@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Floaty — Your calendar, floating on every screen</title>
+  <meta name="description" content="A tiny macOS widget that shows your next Google Calendar event, floating on every Space. Free download.">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f0f1a; color: #e8e8f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; }
+    .pill { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; padding: 24px 32px; max-width: 320px; text-align: left; margin-bottom: 48px; }
+    .badge { font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #ff6b6b; margin-bottom: 6px; }
+    .event-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .event-time { font-size: 12px; color: rgba(255,255,255,0.5); }
+    h1 { font-size: 42px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+    .sub { font-size: 18px; color: rgba(255,255,255,0.6); text-align: center; margin-bottom: 40px; max-width: 480px; line-height: 1.5; }
+    .features { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 480px; margin-bottom: 48px; }
+    .feature { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 16px; font-size: 14px; color: rgba(255,255,255,0.75); }
+    .feature span { display: block; font-size: 20px; margin-bottom: 6px; }
+    .download { background: #4f7fff; color: white; padding: 16px 40px; border-radius: 12px; font-size: 16px; font-weight: 600; text-decoration: none; display: inline-block; transition: opacity 0.2s; }
+    .download:hover { opacity: 0.85; }
+    .req { margin-top: 12px; font-size: 12px; color: rgba(255,255,255,0.35); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="pill">
+    <div class="badge">🚀 NOW</div>
+    <div class="event-title">Team standup</div>
+    <div class="event-time">10:00 – 10:30 AM</div>
+  </div>
+  <h1>🚀 Floaty</h1>
+  <p class="sub">Your next Google Calendar event, floating on every screen. Always visible, never in the way.</p>
+  <div class="features">
+    <div class="feature"><span>🖥️</span>Stays on every Space and screen</div>
+    <div class="feature"><span>✅</span>Check off tasks right from the widget</div>
+    <div class="feature"><span>🚀</span>Tasks and meetings clearly labeled</div>
+    <div class="feature"><span>📍</span>Draggable — stays where you put it</div>
+  </div>
+  <a class="download" href="https://github.com/stajulian5/floaty/releases/latest/download/Floaty.dmg">Free Download</a>
+  <p class="req">macOS 12 Monterey or later · Free · No Python required</p>
+</body>
+</html>
