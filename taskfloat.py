@@ -2004,13 +2004,13 @@ class FloatyApp(AppKit.NSApplication):
 class AppDelegate(AppKit.NSObject):
     """Application delegate. Owns the panel, coordinates auth and refresh."""
 
-    _crushed_history       = []   # persisted across restarts via UserDefaults
-    _crushed_today         = 0    # tasks crushed today (resets at midnight)
-    _last_current_id       = None # event ID being tracked for auto-extend
-    _last_current_end      = None # its current end time (datetime, UTC-aware)
-    _last_current_orig_end = None # original end before any extension
-    _last_current_is_task  = False
-    needs_auth             = False  # set in main() when no valid tokens exist
+    _crushed_history  = []   # persisted across restarts via UserDefaults
+    _crushed_today    = 0    # tasks crushed today (resets at midnight)
+    needs_auth        = False  # set in main() when no valid tokens exist
+
+    # Auto-extend: tracks ALL active tasks simultaneously.
+    # key = event id, value = {"end": datetime (UTC), "orig_end": datetime (UTC)}
+    _tracked_tasks: dict = {}
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, hasVisibleWindows):
         """Dock icon click — toggle the floating widget on/off."""
@@ -2187,56 +2187,75 @@ class AppDelegate(AppKit.NSObject):
             events = fetch_current_or_next_event(AppDelegate.config)
             now = datetime.now(timezone.utc)
 
-            # Auto-extend: only tasks that ended without being checked off
-            tracked_id      = AppDelegate._last_current_id
-            tracked_end     = AppDelegate._last_current_end
-            orig_end        = AppDelegate._last_current_orig_end
-            tracked_is_task = AppDelegate._last_current_is_task
-            if tracked_id and tracked_is_task and tracked_end and tracked_end <= now:
-                current_ids = {e["id"] for e in events if e.get("is_current")}
-                if tracked_id not in current_ids:
-                    max_end = (orig_end or tracked_end) + timedelta(hours=2)
+            # ── Auto-extend: all uncompleted tasks, not just one ──────────────
+            # Next non-task calendar event caps all extensions
+            next_cal = next(
+                (e for e in events if not e.get("is_current") and not e.get("is_task")),
+                None
+            )
+            current_ids = {e["id"] for e in events if e.get("is_current")}
+            extended_count = 0
+
+            for task_id, info in list(AppDelegate._tracked_tasks.items()):
+                tracked_end = info["end"]
+                orig_end    = info["orig_end"]
+                # Only extend tasks that have expired AND are no longer in current events
+                if tracked_end <= now and task_id not in current_ids:
+                    max_end = orig_end + timedelta(hours=2)
                     new_end = tracked_end + timedelta(minutes=15)
-                    # Cap at the start of the next non-task calendar event
-                    next_event = next((e for e in events if not e.get("is_current") and not e.get("is_task")), None)
-                    if next_event:
-                        new_end = min(new_end, next_event["start"])
+                    if next_cal:
+                        new_end = min(new_end, next_cal["start"])
                     new_end = min(new_end, max_end)
                     if new_end > now:
                         try:
-                            extend_calendar_event(AppDelegate.config, tracked_id, new_end)
-                            events = fetch_current_or_next_event(AppDelegate.config)
-                            # Brief toast showing extension happened (auto-clears after 1.8s)
-                            cv = self._content_view
-                            self._run_on_main(lambda: cv.setSuccess_("+15 min — keep going!"))
+                            extend_calendar_event(AppDelegate.config, task_id, new_end)
+                            AppDelegate._tracked_tasks[task_id]["end"] = new_end
+                            extended_count += 1
                         except Exception:
                             pass
+                    else:
+                        # Reached 2-hour cap — stop tracking this task
+                        del AppDelegate._tracked_tasks[task_id]
 
-            # Detect NEXT→NOW transition for pulsation
+            if extended_count:
+                events = fetch_current_or_next_event(AppDelegate.config)
+                current_ids = {e["id"] for e in events if e.get("is_current")}
+                cv = self._content_view
+                label = f"+15 min on {extended_count} task{'s' if extended_count > 1 else ''} — keep going!"
+                self._run_on_main(lambda l=label: cv.setSuccess_(l))
+
+            # ── Update tracking dict with all currently active tasks ──────────
+            prev_ids = set(AppDelegate._tracked_tasks.keys())
+            for ev in events:
+                if ev.get("is_current") and ev.get("is_task"):
+                    eid = ev["id"]
+                    if eid not in AppDelegate._tracked_tasks:
+                        # New task entering NOW state
+                        AppDelegate._tracked_tasks[eid] = {
+                            "end":      ev["end"],
+                            "orig_end": ev["end"],
+                        }
+                    else:
+                        # Update end (may have just been extended)
+                        AppDelegate._tracked_tasks[eid]["end"] = ev["end"]
+
+            # Remove tasks that were checked off (no longer appear anywhere in events)
+            all_event_ids = {e["id"] for e in events}
+            for eid in list(AppDelegate._tracked_tasks.keys()):
+                if eid not in all_event_ids:
+                    del AppDelegate._tracked_tasks[eid]
+
+            # ── Detect NEXT→NOW transition for pulsation ──────────────────────
             current = next((e for e in events if e.get("is_current")), None)
-            prev_id = AppDelegate._last_current_id
+            prev_id = next(iter(prev_ids), None)
             new_now_transition = (
                 current
-                and current["id"] != prev_id
-                and prev_id is not None  # not first load
+                and current["id"] not in prev_ids
+                and len(prev_ids) > 0  # not first load
             )
-            # Also detect: previously no current event, now there is one (fresh event start)
-            if current and prev_id is None:
-                # Check if this event just started (within last 2 min)
+            if current and not prev_ids:
                 started_recently = (now - current["start"]).total_seconds() < 120
                 new_now_transition = started_recently
-
-            if current:
-                if current["id"] != AppDelegate._last_current_id:
-                    AppDelegate._last_current_orig_end = current["end"]
-                AppDelegate._last_current_id       = current["id"]
-                AppDelegate._last_current_end      = current["end"]
-                AppDelegate._last_current_is_task  = current.get("is_task", False)
-            else:
-                AppDelegate._last_current_id       = None
-                AppDelegate._last_current_end      = None
-                AppDelegate._last_current_orig_end = None
-                AppDelegate._last_current_is_task  = False
 
             do_pulse = new_now_transition and AppDelegate.config.get("pulsation", False)
             cv = self._content_view
@@ -2329,11 +2348,9 @@ class AppDelegate(AppKit.NSObject):
     def _do_check_off(self, event, panel_screen=None):
         self._run_on_main(lambda: setattr(self._content_view, '_checking_off', True))
         self._run_on_main(lambda: self._content_view.setNeedsDisplay_(True))
-        # Clear auto-extend tracking so we don't try to extend a deleted event
-        AppDelegate._last_current_id       = None
-        AppDelegate._last_current_end      = None
-        AppDelegate._last_current_orig_end = None
-        AppDelegate._last_current_is_task  = False
+        # Remove this specific task from auto-extend tracking
+        event_id = event.get("id", "")
+        AppDelegate._tracked_tasks.pop(event_id, None)
         try:
             is_task_only = event.get("task_only", False)
             event_id = event.get("id", "")
