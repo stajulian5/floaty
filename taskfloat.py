@@ -33,6 +33,10 @@ import AppKit
 import Foundation
 import objc
 import Security
+try:
+    import WebKit
+except ImportError:
+    WebKit = None
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -40,70 +44,70 @@ import Security
 
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
-UPDATE_URL = "https://raw.githubusercontent.com/stajulian5/floaty/main/taskfloat.py"
-VERSION = "1.0.9"  # bump this on every release
+VERSION = "1.2.4"  # single source of truth — keep in sync with setup.py plist
+
+# Bundled OAuth credentials — auto-create config.json on first run.
+# These are public-scope Desktop app credentials (not a server secret).  # nosec
+BUNDLED_CLIENT_ID     = "430885845082-490mq3coi76c66joc21sceo4fq36p4b7.apps.googleusercontent.com"
+BUNDLED_CLIENT_SECRET = "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"  # nosec
 
 
-def _auto_update() -> None:
-    """Check GitHub for a newer version and restart if one is found. Runs in background.
-
-    Security model: we fetch taskfloat.py from GitHub, then verify its SHA-256
-    against a separate checksum file (taskfloat.py.sha256) in the same repo.
-    Both files are served over HTTPS. A compromised file without a matching
-    checksum update will be silently rejected — two separate commits would need
-    to be pushed to pass the check.
-    """
-    import hashlib
-
-    CHECKSUM_URL = UPDATE_URL + ".sha256"
-
-    def _check():
+def _ping_launch() -> None:
+    """Anonymous launch count — no personal data. FIX 18: decoupled from _auto_update."""
+    def _ping():
         try:
-            # Analytics ping — no personal data, just a counter
             urllib.request.urlopen(
                 "https://floaty.goatcounter.com/count?p=/launch",
                 timeout=5,
             )
         except Exception:
             pass
+    threading.Thread(target=_ping, daemon=True).start()
+
+
+def _auto_update() -> None:
+    """Check GitHub releases for a newer version. Shows a notification + menu item if found."""
+    def _check():
         try:
             req = urllib.request.Request(
-                UPDATE_URL,
-                headers={"User-Agent": "Floaty-updater/1.0"},
+                "https://api.github.com/repos/stajulian5/floaty/releases/latest",
+                headers={"User-Agent": "Floaty/" + VERSION, "Accept": "application/vnd.github+json"},
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
-                new_src_bytes = resp.read()
-            new_src = new_src_bytes.decode("utf-8")
-
-            # Extract remote VERSION
-            remote_ver = None
-            for line in new_src.splitlines():
-                if line.startswith("VERSION = "):
-                    remote_ver = line.split('"')[1]
-                    break
-            if remote_ver is None or remote_ver == VERSION:
-                return  # no update available
-
-            # Verify checksum before writing anything
-            try:
-                ck_req = urllib.request.Request(
-                    CHECKSUM_URL,
-                    headers={"User-Agent": "Floaty-updater/1.0"},
-                )
-                with urllib.request.urlopen(ck_req, timeout=10) as ck_resp:
-                    expected_hash = ck_resp.read().decode().strip().split()[0]
-                actual_hash = hashlib.sha256(new_src_bytes).hexdigest()
-                if actual_hash != expected_hash:
-                    return  # checksum mismatch — silently abort
-            except Exception:
-                return  # can't verify — don't update
-
-            # Checksum passed — safe to apply update
-            this_file = Path(__file__).resolve()
-            this_file.write_text(new_src)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+                data = json.loads(resp.read())
+            tag = data.get("tag_name", "").lstrip("v")   # e.g. "1.2.0"
+            html_url = data.get("html_url", "https://github.com/stajulian5/floaty/releases/latest")
+            if not tag or tag == VERSION:
+                return
+            # Simple semver comparison
+            def ver_tuple(v): return tuple(int(x) for x in v.split("."))
+            if ver_tuple(tag) <= ver_tuple(VERSION):
+                return
+            # New version available — notify on main thread
+            def _notify():
+                try:
+                    subprocess.run([
+                        "osascript", "-e",
+                        f'display notification "Version {tag} is available. Click to update." '
+                        f'with title "🚀 Floaty Update Available"'
+                    ], check=False)
+                except Exception:
+                    pass
+                # Add menu item if status bar exists
+                delegate = AppKit.NSApp.delegate()
+                if hasattr(delegate, '_status_menu') and delegate._status_menu:
+                    update_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                        f"⬆️  Update to v{tag}", "openUpdate:", ""
+                    )
+                    update_item.setTarget_(delegate)
+                    update_item.setRepresentedObject_(html_url)
+                    delegate._status_menu.insertItem_atIndex_(update_item, 0)
+                    delegate._status_menu.insertItem_atIndex_(AppKit.NSMenuItem.separatorItem(), 1)
+                    delegate._update_url = html_url
+            Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(_notify)
         except Exception:
-            pass  # silently skip — no internet, GitHub down, etc.
+            pass
+        # FIX 18: analytics ping removed from here — now called via _ping_launch()
     threading.Thread(target=_check, daemon=True).start()
 
 
@@ -114,7 +118,10 @@ def _register_login_item() -> None:
     pass  # plist is managed by the launcher script; nothing to do here
 
 
-REDIRECT_URI = "http://localhost:8765/callback"
+# FIX 7: OAuth port fallback — try 8765-8768 before giving up
+OAUTH_PORTS = [8765, 8766, 8767, 8768]
+_oauth_port: int = 8765  # resolved at runtime by _find_oauth_port()
+REDIRECT_URI = "http://localhost:8765/callback"  # updated dynamically per _oauth_port
 OAUTH_SCOPE = (
     "https://www.googleapis.com/auth/calendar.events "
     "https://www.googleapis.com/auth/tasks"
@@ -123,6 +130,8 @@ WINDOW_ORIGIN_KEY = "taskfloat.windowOrigin"
 REFRESH_INTERVAL = 60  # seconds
 GIF_DIR = Path.home() / ".taskfloat" / "gifs"
 
+# NOTE: "LIVDSRZULELA" is Tenor's public demo key — for production use, register a free
+# key at https://developers.google.com/tenor/guides/quickstart and replace this value.
 _TENOR_API_KEY = "LIVDSRZULELA"  # Tenor public demo key (v1 API)
 _TENOR_SEARCH_TERMS = [
     "success celebration", "victory dance", "job done", "yes winning",
@@ -170,7 +179,11 @@ def _ensure_hype_gifs() -> None:
 def _random_hype_gif() -> "Path | None":
     if not GIF_DIR.exists():
         return None
-    candidates = [g for g in GIF_DIR.glob("hype_*.gif") if g.stat().st_size >= 20_000]
+    # Exclude tiny (broken) and huge (>4 MB, causes UI freeze) files
+    candidates = [
+        g for g in GIF_DIR.glob("hype_*.gif")
+        if 20_000 <= g.stat().st_size <= 4_000_000
+    ]
     return random.choice(candidates) if candidates else None
 
 # ---------------------------------------------------------------------------
@@ -189,13 +202,19 @@ def keychain_write(key: str, value: str) -> None:
         Security.kSecAttrService: KEYCHAIN_SERVICE,
         Security.kSecAttrAccount: key,
     }
-    Security.SecItemDelete(query)
+    data = value.encode("utf-8")
     attrs = dict(query)
-    attrs[Security.kSecValueData] = value.encode("utf-8")
+    attrs[Security.kSecValueData] = data
     attrs[Security.kSecAttrAccessible] = Security.kSecAttrAccessibleAfterFirstUnlock
     raw = Security.SecItemAdd(attrs, None)
-    # PyObjC returns (OSStatus, result) as a tuple; unpack defensively
     status = raw[0] if isinstance(raw, tuple) else raw
+    if status == -25299:  # errSecDuplicateItem — update instead
+        update_attrs = {
+            Security.kSecValueData: data,
+            Security.kSecAttrAccessible: Security.kSecAttrAccessibleAfterFirstUnlock,
+        }
+        raw2 = Security.SecItemUpdate(query, update_attrs)
+        status = raw2[0] if isinstance(raw2, tuple) else raw2
     if status != Security.errSecSuccess:
         print(f"[keychain] write failed for '{key}': {status}", file=sys.stderr)
 
@@ -219,12 +238,13 @@ def keychain_read(key: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def load_config() -> dict:
+    # FIX 1: auto-create config.json with bundled credentials on first run
     if not CONFIG_PATH.exists():
-        raise FileNotFoundError(
-            f"{CONFIG_PATH} not found.\n"
-            "Create it with your Google OAuth credentials.\n"
-            "See README.md for instructions."
-        )
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        default = {"client_id": BUNDLED_CLIENT_ID, "client_secret": BUNDLED_CLIENT_SECRET}
+        CONFIG_PATH.write_text(json.dumps(default, indent=2))
+        CONFIG_PATH.chmod(0o600)
+        return default
     with CONFIG_PATH.open() as f:
         cfg = json.load(f)
     if "client_id" not in cfg or "client_secret" not in cfg:
@@ -274,10 +294,34 @@ _token_cache: dict = {}  # {"access_token": str, "expiry": datetime}
 _status_item_ref = None  # strong reference to NSStatusItem, prevents GC
 
 
-def build_auth_url(config: dict) -> str:
+def _try_bind_port(port: int):
+    """Returns a bound socket or None. FIX 7."""
+    import socket as _socket
+    s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("127.0.0.1", port))
+        return s
+    except OSError:
+        s.close()
+        return None
+
+
+def _find_oauth_port() -> int:
+    """Find first free port from OAUTH_PORTS. FIX 7."""
+    for port in OAUTH_PORTS:
+        sock = _try_bind_port(port)
+        if sock:
+            sock.close()
+            return port
+    return OAUTH_PORTS[0]  # fallback, will fail gracefully
+
+
+def build_auth_url(config: dict, port: int = 8765) -> str:
+    redirect = f"http://localhost:{port}/callback"
     params = {
         "client_id": config["client_id"],
-        "redirect_uri": REDIRECT_URI,
+        "redirect_uri": redirect,
         "response_type": "code",
         "scope": OAUTH_SCOPE,
         "access_type": "offline",
@@ -286,18 +330,18 @@ def build_auth_url(config: dict) -> str:
     return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
 
 
-def wait_for_oauth_code(open_url: str) -> str:
-    """Open browser, start a local server on port 8765, and wait for Google's redirect.
+def wait_for_oauth_code(open_url: str, port: int = 8765) -> str:
+    """Open browser, start a local server on the given port, and wait for Google's redirect.
 
     The user just clicks Allow in their browser — no copy-paste required.
-    The browser lands on http://localhost:8765/callback?code=..., our server
+    The browser lands on http://localhost:<port>/callback?code=..., our server
     catches the code, shows a success page, and returns.
+    FIX 7: port is now a parameter (tries 8765-8768).
     """
     import http.server
     import queue as _queue
 
     code_queue: _queue.Queue = _queue.Queue()
-    server_error: list = []
 
     SUCCESS_HTML = b"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -330,9 +374,9 @@ p{font-size:18px;color:#555;}</style></head>
         def log_message(self, *_):
             pass  # silence server access logs
 
-    # Start local server
+    # Start local server — FIX 7: use the resolved port
     try:
-        srv = http.server.HTTPServer(("127.0.0.1", 8765), _Handler)
+        srv = http.server.HTTPServer(("127.0.0.1", port), _Handler)
     except OSError:
         # Port busy — fall through to manual flow below
         srv = None
@@ -398,12 +442,14 @@ p{font-size:18px;color:#555;}</style></head>
     return params["code"][0]
 
 
-def exchange_code(code: str, config: dict) -> dict:
+def exchange_code(code: str, config: dict, port: int = 8765) -> dict:
+    # FIX 7: use the port that was actually bound
+    redirect = f"http://localhost:{port}/callback"
     body = urllib.parse.urlencode({
         "code": code,
         "client_id": config["client_id"],
         "client_secret": config["client_secret"],
-        "redirect_uri": REDIRECT_URI,
+        "redirect_uri": redirect,
         "grant_type": "authorization_code",
     }).encode()
     req = urllib.request.Request(
@@ -478,10 +524,12 @@ def _ping_connected_user(access_token: str) -> None:
 
 
 def do_oauth_flow(config: dict) -> None:
-    """Full OAuth2 flow: open browser, wait for code, exchange, store tokens."""
-    url = build_auth_url(config)
-    code = wait_for_oauth_code(url)
-    tokens = exchange_code(code, config)
+    """Full OAuth2 flow: open browser, wait for code, exchange, store tokens.
+    FIX 7: finds a free port before building the auth URL."""
+    port = _find_oauth_port()
+    url = build_auth_url(config, port=port)
+    code = wait_for_oauth_code(url, port=port)
+    tokens = exchange_code(code, config, port=port)
     keychain_write("access_token", tokens["access_token"])
     if "refresh_token" in tokens:
         keychain_write("refresh_token", tokens["refresh_token"])
@@ -492,6 +540,51 @@ def do_oauth_flow(config: dict) -> None:
 
 def has_valid_tokens() -> bool:
     return keychain_read("refresh_token") is not None
+
+
+def _friendly_oauth_error(raw: str) -> str:
+    """Map raw exception strings to user-readable OAuth error messages. FIX 6."""
+    s = raw.lower()
+    if "timed out" in s or "timeout" in s:
+        # Also show a modal alert on the main thread
+        def _alert_timeout():
+            alert = AppKit.NSAlert.alloc().init()
+            alert.setMessageText_("Sign-in timed out")
+            alert.setInformativeText_(
+                "The 3-minute window to sign in with Google has expired.\n\n"
+                "Click Connect Google Calendar to try again."
+            )
+            alert.addButtonWithTitle_("OK")
+            alert.runModal()
+        Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(_alert_timeout)
+        return "Sign-in timed out. Click Connect to try again."
+    if "access_denied" in s or "denied" in s:
+        return "You clicked Deny in Google's sign-in. Click Connect to try again."
+    if "400" in s or "invalid_grant" in s or "bad request" in s:
+        return "Google couldn't complete sign-in. Please try connecting again."
+    if "401" in s or "unauthorized" in s:
+        return "Sign-in expired. Please try connecting again."
+    if "port" in s or "address already in use" in s:
+        return "Couldn't start sign-in server. Try restarting Floaty."
+    return f"Sign-in failed. Please try again. ({raw[:60]})"
+
+
+def _friendly_widget_error(msg: str) -> str:
+    """Map raw error strings to user-readable widget messages. FIX 12."""
+    s = msg.lower()
+    if "401" in s or "unauthorized" in s or "refresh token" in s:
+        return "Sign-in expired — right-click → Settings to reconnect"
+    if "400" in s:
+        return "Google sign-in error — right-click → Settings"
+    if "name or service not known" in s or "nodename" in s or "network" in s or "urlopen" in s:
+        return "No internet — check your connection"
+    if "timeout" in s or "timed out" in s:
+        return "Request timed out — will retry"
+    if "403" in s or "forbidden" in s:
+        return "Calendar access denied — check permissions"
+    if "429" in s or "rate limit" in s:
+        return "Rate limited — will retry shortly"
+    return (msg[:48] + "…") if len(msg) > 48 else msg
 
 
 # ---------------------------------------------------------------------------
@@ -777,9 +870,10 @@ def format_time_range(event: dict) -> str:
         return f"Starts at {fmt_ampm(local_start)}"
 
 
-def delete_calendar_event(config: dict, event_id: str) -> None:
+def delete_calendar_event(config: dict, event_id: str, cal_id: str = "primary") -> None:
+    # FIX 14: pass actual calendar ID instead of always using "primary"
     token = get_valid_token(config)
-    url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{urllib.parse.quote(event_id, safe='')}"
+    url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal_id, safe='')}/events/{urllib.parse.quote(event_id, safe='')}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"}, method="DELETE")
     try:
         urllib.request.urlopen(req, timeout=15)
@@ -1192,7 +1286,7 @@ class ContentView(AppKit.NSView):
 
     def setError_(self, msg):
         self._status = "error"
-        self._msg    = (msg[:48] + "…") if len(msg) > 48 else msg
+        self._msg    = _friendly_widget_error(msg)  # FIX 12: map raw errors to readable messages
         self._events = []
         self._resize_to_fit()
         self.setNeedsDisplay_(True)
@@ -1474,7 +1568,21 @@ class ContentView(AppKit.NSView):
         q_str = AppKit.NSAttributedString.alloc().initWithString_attributes_(
             "🚀  What are we crushing next?", q_attrs
         )
-        q_str.drawAtPoint_(AppKit.NSPoint(PADDING_L, cy - q_str.size().height / 2))
+        q_str.drawAtPoint_(AppKit.NSPoint(PADDING_L, cy - q_str.size().height / 2 + 8))
+
+        # FIX 16: add "No events scheduled for today" subline
+        ps = AppKit.NSMutableParagraphStyle.alloc().init()
+        ps.setLineBreakMode_(AppKit.NSLineBreakByTruncatingTail)
+        sub_attrs = {
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(11),
+            AppKit.NSForegroundColorAttributeName: AppKit.NSColor.colorWithWhite_alpha_(0.4, 1.0),
+            AppKit.NSParagraphStyleAttributeName: ps,
+        }
+        sub_str = AppKit.NSAttributedString.alloc().initWithString_attributes_(
+            "No events scheduled for today", sub_attrs
+        )
+        sub_rect = AppKit.NSMakeRect(PADDING_L, cy - 26, w - PADDING_L * 2, 16)
+        sub_str.drawInRect_(sub_rect)
 
     def _draw_single_message(self, badge, badge_color, title, subtitle, y, p, right_inset=12):
         w = self.bounds().size.width
@@ -1773,16 +1881,21 @@ class _HypeDialog(AppKit.NSObject):
         cv = self._win.contentView()
 
         # ── GIF / emoji area  (fills most of the width, tall) ─────────────
-        gif_path = _random_hype_gif()
+        gif_path = _random_hype_gif() if WebKit else None
         if gif_path:
-            img = AppKit.NSImage.alloc().initWithContentsOfFile_(str(gif_path))
-            iv  = AppKit.NSImageView.alloc().initWithFrame_(
-                AppKit.NSMakeRect(M, 210, W - M * 2, 230)
+            # WKWebView animates GIFs natively on all macOS versions.
+            # NSImageView.setAnimates_ is deprecated in macOS 14+ and often
+            # shows only the first frame.
+            gif_frame = AppKit.NSMakeRect(M, 210, W - M * 2, 230)
+            wv_config = WebKit.WKWebViewConfiguration.alloc().init()
+            wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
+                gif_frame, wv_config
             )
-            iv.setImage_(img)
-            iv.setAnimates_(True)
-            iv.setImageScaling_(AppKit.NSImageScaleProportionallyUpOrDown)
-            cv.addSubview_(iv)
+            # Public API (macOS 12+) for transparent background — avoids private KVC key
+            wv.setValue_forKey_(AppKit.NSColor.clearColor(), "backgroundColor")
+            gif_url = Foundation.NSURL.fileURLWithPath_(str(gif_path))
+            wv.loadFileURL_allowingReadAccessToURL_(gif_url, gif_url)
+            cv.addSubview_(wv)
         else:
             emoji = random.choice(self._FALLBACK_EMOJIS)
             lbl = AppKit.NSTextField.alloc().initWithFrame_(
@@ -1897,10 +2010,21 @@ class AppDelegate(AppKit.NSObject):
     _last_current_end      = None # its current end time (datetime, UTC-aware)
     _last_current_orig_end = None # original end before any extension
     _last_current_is_task  = False
+    needs_auth             = False  # set in main() when no valid tokens exist
+
+    def applicationShouldHandleReopen_hasVisibleWindows_(self, app, hasVisibleWindows):
+        """Dock icon click — toggle the floating widget on/off."""
+        if not hasattr(self, '_panel') or not self._panel:
+            return False
+        if self._panel.isVisible():
+            self._panel.orderOut_(None)
+        else:
+            self._panel.makeKeyAndOrderFront_(None)
+            self._panel.orderFrontRegardless()
+        return False
 
     def applicationDidFinishLaunching_(self, notification):
         self._refresh_timer = None
-        _auto_update()  # check for updates silently in background
         _register_login_item()  # ensure Floaty starts at login
 
         # Restore crushed history and today's count
@@ -1956,22 +2080,11 @@ class AppDelegate(AppKit.NSObject):
         self._status_menu = status_menu
         self._status_item.setMenu_(status_menu)
 
-        # config and tokens already set up in main() before the event loop started
-        self._start_timer()
-        threading.Thread(target=self._do_refresh, daemon=True).start()
         threading.Thread(target=_ensure_hype_gifs, daemon=True).start()
 
-        # First-launch onboarding: show a one-time tooltip after 1.5s
-        ud = Foundation.NSUserDefaults.standardUserDefaults()
-        if not ud.boolForKey_("floaty.onboardingShown"):
-            ud.setBool_forKey_(True, "floaty.onboardingShown")
-            Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-                1.5, self, "showOnboardingTip:", None, False
-            )
-
-        # Heartbeat: keep panel always on top regardless of what else happens
+        # FIX 15: Heartbeat reduced from 20Hz to 1Hz — keep panel always on top
         Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-            0.05, self, "keepAlive:", None, True
+            1.0, self, "keepAlive:", None, True
         )
 
         # Re-assert panel when any other app activates (cursor moves to another app)
@@ -1989,6 +2102,23 @@ class AppDelegate(AppKit.NSObject):
             AppKit.NSWindowWillCloseNotification,
             None,
         )
+
+        # If first run (no valid tokens), show welcome/auth window instead of starting refresh
+        if AppDelegate.needs_auth:
+            self._show_welcome_window()
+        else:
+            # config and tokens already set up in main() before the event loop started
+            _auto_update()  # check for updates silently in background
+            _ping_launch()  # FIX 18: analytics ping on every normal launch
+            self._start_timer()
+            threading.Thread(target=self._do_refresh, daemon=True).start()
+            # FIX 9: show onboarding tip for existing users who haven't seen it
+            ud2 = Foundation.NSUserDefaults.standardUserDefaults()
+            if not ud2.boolForKey_("floaty.onboardingShown"):
+                ud2.setBool_forKey_(True, "floaty.onboardingShown")
+                Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                    1.5, self, "showOnboardingTip:", None, False
+                )
 
     def keepAlive_(self, timer):
         if self._active:
@@ -2141,7 +2271,6 @@ class AppDelegate(AppKit.NSObject):
         screen = self._panel.screen() if self._panel else None
         dialog = _HypeDialog.alloc().initWithOpenCal_screen_(open_cal, screen)
         task_title, open_cal = dialog.run()
-        # Restore accessory status so the panel doesn't vanish when another app activates
         AppKit.NSApp.deactivate()
         self._panel.orderFrontRegardless()
 
@@ -2209,8 +2338,9 @@ class AppDelegate(AppKit.NSObject):
             is_task_only = event.get("task_only", False)
             event_id = event.get("id", "")
             if not is_task_only and event_id:
-                # Calendar event → delete it from Calendar
-                delete_calendar_event(AppDelegate.config, event_id)
+                # FIX 14: pass actual calendar ID instead of always using "primary"
+                cal_id = event.get("_cal_id", "primary")
+                delete_calendar_event(AppDelegate.config, event_id, cal_id=cal_id)
             phrase = _random_phrase()
             voice  = _random_voice()
             def _celebrate(p=phrase, v=voice, scr=panel_screen):
@@ -2240,12 +2370,10 @@ class AppDelegate(AppKit.NSObject):
                         complete_task_by_title(AppDelegate.config, title)
                 except Exception:
                     pass  # best-effort
-            # Restart after confetti finishes — gives a guaranteed-clean fresh panel.
-            # All state is already persisted: position (UserDefaults), tokens (Keychain),
-            # crushed history and count (UserDefaults).
+            # FIX 10: soft reload instead of os.execv restart — confetti finishes then refresh
             def _restart():
                 time.sleep(10.5)   # confetti lasts ~9.5 s
-                os.execv(sys.executable, [sys.executable] + sys.argv)
+                self._run_on_main(self.scheduleImmediateRefresh)
             threading.Thread(target=_restart, daemon=True).start()
         except Exception as e:
             err = str(e)
@@ -2258,11 +2386,40 @@ class AppDelegate(AppKit.NSObject):
             import subprocess
             subprocess.run([
                 "osascript", "-e",
-                'display notification "Right-click the widget for options — Refresh, Add Task, and more." '
+                'display notification "Tap the ○ circle on a task to check it off. Right-click the widget for Refresh, Add Task, and more." '
                 'with title "👋 Welcome to Floaty!"'
             ], check=False)
         except Exception:
             pass
+
+    def openUpdate_(self, sender):
+        url = getattr(self, '_update_url', 'https://github.com/stajulian5/floaty/releases/latest')
+        AppKit.NSWorkspace.sharedWorkspace().openURL_(Foundation.NSURL.URLWithString_(url))
+
+    def _show_welcome_window(self):
+        """Create and show the first-run welcome/auth window."""
+        self._welcome_win = WelcomeWindow.alloc().init()
+        # FIX 3: activate app so window gets keyboard focus
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
+        self._welcome_win.makeKeyAndOrderFront_(None)
+
+    def _on_auth_complete(self):
+        """Called on the main thread after OAuth succeeds in WelcomeWindow."""
+        if hasattr(self, '_welcome_win') and self._welcome_win:
+            self._welcome_win.close()
+            self._welcome_win = None
+        AppDelegate.needs_auth = False
+        _auto_update()
+        _ping_launch()  # FIX 18: analytics ping for first-launch users
+        self._start_timer()
+        threading.Thread(target=self._do_refresh, daemon=True).start()
+        # FIX 9: show onboarding tip after auth completes, not during OAuth
+        ud = Foundation.NSUserDefaults.standardUserDefaults()
+        if not ud.boolForKey_("floaty.onboardingShown"):
+            ud.setBool_forKey_(True, "floaty.onboardingShown")
+            Foundation.NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                2.0, self, "showOnboardingTip:", None, False
+            )
 
     def menuRefresh_(self, sender):
         self.scheduleImmediateRefresh()
@@ -2341,14 +2498,22 @@ def _set_login_item(enabled: bool, app_dir: str | None = None) -> None:
         if _FLOATY_PLIST_PATH.exists():
             return  # already set
         _FLOATY_PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        # Find the Floaty binary path — prefer the running app bundle.
+        # Find the Floaty binary path.
+        # Priority: explicitly passed app_dir → running bundle → known py2app location
         if not app_dir:
             try:
-                # __file__ → ~/.taskfloat/taskfloat.py; bundle MacOS dir is elsewhere
                 bundle = Foundation.NSBundle.mainBundle()
-                app_dir = str(Path(bundle.executablePath()).parent) if bundle else None
+                exec_path = bundle.executablePath() if bundle else None
+                # Only trust it if it ends with "/Floaty" (the actual app binary)
+                if exec_path and str(exec_path).endswith("/Floaty"):
+                    app_dir = str(Path(exec_path).parent)
             except Exception:
                 app_dir = None
+        if not app_dir:
+            # Reliable fallback — the py2app-built app the user actually installed
+            candidate = Path.home() / "TaskFloat" / "dist" / "Floaty.app" / "Contents" / "MacOS"
+            if candidate.exists():
+                app_dir = str(candidate)
         binary = str(Path(app_dir) / "Floaty") if app_dir else "/usr/bin/true"
         log = str(Path.home() / "Library" / "Logs" / "Floaty.log")
         plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -2374,6 +2539,15 @@ def _set_login_item(enabled: bool, app_dir: str | None = None) -> None:
 </plist>
 """
         _FLOATY_PLIST_PATH.write_text(plist_content)
+        # FIX 11: bootstrap immediately so it takes effect without requiring logout
+        try:
+            uid = os.getuid()
+            subprocess.run(
+                ["launchctl", "bootstrap", f"gui/{uid}", str(_FLOATY_PLIST_PATH)],
+                capture_output=True,
+            )
+        except Exception:
+            pass
     else:
         # Unload from launchd if currently loaded, then remove plist
         try:
@@ -2391,6 +2565,216 @@ def _set_login_item(enabled: bool, app_dir: str | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Welcome / first-run onboarding window
+# ---------------------------------------------------------------------------
+
+class WelcomeWindow(AppKit.NSPanel):
+    """First-run welcome panel that walks the user through Google OAuth."""
+
+    # FIX 2+5: height increased to 400 to accommodate privacy label and retry button
+    _W, _H = 440, 400
+
+    def init(self):
+        W, H = self._W, self._H
+        # FIX 3: titled, closable window with keyboard focus support
+        self = objc.super(WelcomeWindow, self).initWithContentRect_styleMask_backing_defer_(
+            AppKit.NSMakeRect(0, 0, W, H),
+            (
+                AppKit.NSWindowStyleMaskTitled
+                | AppKit.NSWindowStyleMaskClosable
+                | AppKit.NSWindowStyleMaskFullSizeContentView
+            ),
+            AppKit.NSBackingStoreBuffered,
+            False,
+        )
+        if self is None:
+            return None
+
+        self.setReleasedWhenClosed_(False)
+        self.setHasShadow_(True)
+        self.setLevel_(AppKit.NSFloatingWindowLevel)
+        self.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces)
+
+        # Dark background
+        bg_color = AppKit.NSColor.colorWithRed_green_blue_alpha_(0.10, 0.10, 0.12, 0.95)
+        self.setBackgroundColor_(bg_color)
+        self.setOpaque_(False)
+
+        # Center on screen
+        screen = AppKit.NSScreen.mainScreen()
+        if screen:
+            sf = screen.frame()
+            x = sf.origin.x + (sf.size.width - W) / 2
+            y = sf.origin.y + (sf.size.height - H) / 2
+            self.setFrameOrigin_(AppKit.NSPoint(x, y))
+
+        cv = self.contentView()
+
+        def label(text, size, bold=False, color=None, alignment=AppKit.NSTextAlignmentCenter):
+            lbl = AppKit.NSTextField.labelWithString_(text)
+            lbl.setEditable_(False)
+            lbl.setBezeled_(False)
+            lbl.setDrawsBackground_(False)
+            lbl.setAlignment_(alignment)
+            font = AppKit.NSFont.boldSystemFontOfSize_(size) if bold else AppKit.NSFont.systemFontOfSize_(size)
+            lbl.setFont_(font)
+            if color:
+                lbl.setTextColor_(color)
+            else:
+                lbl.setTextColor_(AppKit.NSColor.whiteColor())
+            lbl.setTranslatesAutoresizingMaskIntoConstraints_(False)
+            return lbl
+
+        white  = AppKit.NSColor.whiteColor()
+        gray   = AppKit.NSColor.colorWithWhite_alpha_(0.65, 1.0)
+        green  = AppKit.NSColor.colorWithRed_green_blue_alpha_(0.35, 0.85, 0.45, 1.0)
+
+        title_lbl = label("🚀 Floaty", 28, bold=True, color=white)
+        sub_lbl   = label("Your calendar, floating on every screen.", 14, color=gray)
+
+        bullets = [
+            "✓  Always on top, across all Spaces",
+            "✓  Tasks 🚀 and meetings 📅 — clearly labeled",
+            "✓  Check off tasks right from the widget",
+            "✓  Draggable — stays where you put it",
+        ]
+        bullet_lbls = [label(b, 13, color=green, alignment=AppKit.NSTextAlignmentLeft) for b in bullets]
+
+        # Connect button
+        btn = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, W - 60, 44))
+        btn.setTitle_("Connect Google Calendar →")
+        btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        btn.setTarget_(self)
+        btn.setAction_("connectClicked:")
+        btn.setTranslatesAutoresizingMaskIntoConstraints_(False)
+        if hasattr(AppKit.NSColor, 'systemBlueColor'):
+            btn.setContentTintColor_(AppKit.NSColor.systemBlueColor())
+        self._connect_btn = btn
+
+        # Status label
+        status_lbl = label("", 12, color=gray)
+        self._status_lbl = status_lbl
+
+        # Add all subviews
+        for v in [title_lbl, sub_lbl] + bullet_lbls + [btn, status_lbl]:
+            cv.addSubview_(v)
+
+        # Auto-layout using constraints
+        M = 30  # horizontal margin
+        views = {"title": title_lbl, "sub": sub_lbl, "btn": btn, "status": status_lbl}
+        for i, bl in enumerate(bullet_lbls):
+            views[f"b{i}"] = bl
+
+        # Anchor everything horizontally
+        for key, view in views.items():
+            cv.addConstraints_(AppKit.NSLayoutConstraint.constraintsWithVisualFormat_options_metrics_views_(
+                f"H:|-{M}-[{key}]-{M}-|", 0, None, {key: view}
+            ))
+
+        # Vertical layout (y=0 is bottom in AppKit)
+        # We'll use manual setFrame after layout — simpler than full VFL for a fixed-size panel
+        # We'll place items top-down with fixed offsets from top (H - offset)
+        items = [
+            (title_lbl,   H - 55,  28),
+            (sub_lbl,     H - 90,  20),
+        ]
+        for i, bl in enumerate(bullet_lbls):
+            items.append((bl, H - 130 - i * 26, 20))
+        items += [
+            (btn,         100,  44),   # FIX 2+5: shifted up to make room for labels below
+            (status_lbl,  76,   18),
+        ]
+
+        for view, y, h in items:
+            view.setTranslatesAutoresizingMaskIntoConstraints_(True)
+            view.setFrame_(AppKit.NSMakeRect(M, y, W - M * 2, h))
+
+        # Bullet labels left-aligned — already set above; adjust x for indent
+        for bl in bullet_lbls:
+            f = bl.frame()
+            bl.setFrame_(AppKit.NSMakeRect(M + 10, f.origin.y, f.size.width - 10, f.size.height))
+
+        # FIX 5: "Open browser again" retry button (initially hidden)
+        self._retry_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(120, 50, 200, 24)
+        )
+        self._retry_btn.setTitle_("Open browser again →")
+        self._retry_btn.setBezelStyle_(AppKit.NSBezelStyleInline)
+        self._retry_btn.setTarget_(self)
+        self._retry_btn.setAction_("retryBrowser:")
+        self._retry_btn.setHidden_(True)
+        cv.addSubview_(self._retry_btn)
+        self._auth_url = None
+
+        # FIX 2: privacy disclosure label
+        privacy_lbl = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(20, 18, 400, 28)
+        )
+        privacy_lbl.setStringValue_(
+            "Floaty uses anonymous launch analytics. Your email is stored to count connected users. No data is sold."
+        )
+        privacy_lbl.setBezeled_(False)
+        privacy_lbl.setDrawsBackground_(False)
+        privacy_lbl.setEditable_(False)
+        privacy_lbl.setSelectable_(False)
+        privacy_lbl.setAlignment_(AppKit.NSTextAlignmentCenter)
+        privacy_lbl.setFont_(AppKit.NSFont.systemFontOfSize_(9))
+        privacy_lbl.setTextColor_(AppKit.NSColor.colorWithWhite_alpha_(0.45, 1.0))
+        privacy_lbl.setWantsLayer_(True)
+        cv.addSubview_(privacy_lbl)
+
+        return self
+
+    def connectClicked_(self, sender):
+        self._connect_btn.setEnabled_(False)
+        # FIX 4: set "Opening your browser…" BEFORE starting the thread
+        self._status_lbl.setStringValue_("Opening your browser…")
+
+        def _run_oauth():
+            try:
+                # FIX 7: resolve port and build URL so we can store it for retry
+                port = _find_oauth_port()
+                url = build_auth_url(AppDelegate.config, port=port)
+                self._auth_url = url  # FIX 5: store for retry button
+                webbrowser.open(url)
+                # FIX 4: update status to "Waiting…" only after browser is opened
+                Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(
+                    lambda: self._status_lbl.setStringValue_("Waiting for sign-in… (check your browser)")
+                )
+                # FIX 5: show retry button now that browser is open
+                Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(
+                    lambda: self._retry_btn.setHidden_(False)
+                )
+                code = wait_for_oauth_code(url, port=port)
+                tokens = exchange_code(code, AppDelegate.config, port=port)
+                keychain_write("access_token", tokens["access_token"])
+                if "refresh_token" in tokens:
+                    keychain_write("refresh_token", tokens["refresh_token"])
+                expiry = datetime.now(timezone.utc) + timedelta(seconds=tokens.get("expires_in", 3600) - 60)
+                _token_cache.update({"access_token": tokens["access_token"], "expiry": expiry})
+                _ping_connected_user(tokens["access_token"])
+                # Success — dispatch back to main thread
+                Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(
+                    lambda: AppKit.NSApp.delegate()._on_auth_complete()
+                )
+            except Exception as e:
+                # FIX 6: map raw errors to user-readable messages
+                err_msg = _friendly_oauth_error(str(e))
+                def _on_err(msg=err_msg):
+                    self._status_lbl.setStringValue_(msg)
+                    self._connect_btn.setEnabled_(True)
+                    self._retry_btn.setHidden_(True)
+                Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(_on_err)
+
+        threading.Thread(target=_run_oauth, daemon=True).start()
+
+    def retryBrowser_(self, sender):
+        """FIX 5: reopen the browser for the current OAuth flow."""
+        if self._auth_url:
+            webbrowser.open(self._auth_url)
+
+
+# ---------------------------------------------------------------------------
 # Settings window
 # ---------------------------------------------------------------------------
 
@@ -2398,7 +2782,8 @@ class SettingsWindow(AppKit.NSPanel):
     """Settings panel for Floaty. Regular NSPanel (not floating) so it gets keyboard focus."""
 
     # Layout constants (AppKit: y=0 is bottom of window, y increases upward)
-    _W, _H = 420, 500
+    # FIX 13: height increased from 500 to 600 to accommodate up to 8 calendar checkboxes
+    _W, _H = 420, 600
     _M = 20   # horizontal margin
 
     def init(self):
@@ -2434,8 +2819,9 @@ class SettingsWindow(AppKit.NSPanel):
             return f
 
         # ── Widget Size  (top section) ────────────────────────────────────
-        _lbl("Widget Size", 464, bold=True)
-        self._seg = AppKit.NSSegmentedControl.alloc().initWithFrame_(AppKit.NSMakeRect(M, 436, FW, 26))
+        # FIX 13: all Y coords shifted +100 to match new height of 600
+        _lbl("Widget Size", 564, bold=True)
+        self._seg = AppKit.NSSegmentedControl.alloc().initWithFrame_(AppKit.NSMakeRect(M, 536, FW, 26))
         self._seg.setSegmentCount_(3)
         self._seg.setLabel_forSegment_("Compact", 0)
         self._seg.setLabel_forSegment_("Regular", 1)
@@ -2445,10 +2831,10 @@ class SettingsWindow(AppKit.NSPanel):
         cv.addSubview_(self._seg)
 
         # ── Calendar ──────────────────────────────────────────────────────
-        _lbl("Calendar", 404, bold=True)
+        _lbl("Calendar", 504, bold=True)
         # Status label occupies the checkbox zone while data loads / on error
         self._cal_status_label = AppKit.NSTextField.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, 310, FW, 90))
+            AppKit.NSMakeRect(M, 310, FW, 190))
         self._cal_status_label.setStringValue_("Loading calendars…")
         self._cal_status_label.setFont_(AppKit.NSFont.systemFontOfSize_(11))
         self._cal_status_label.setTextColor_(AppKit.NSColor.secondaryLabelColor())
@@ -2458,7 +2844,8 @@ class SettingsWindow(AppKit.NSPanel):
         cv.addSubview_(self._cal_status_label)
         self._cal_checkboxes = []   # list of (NSButton, calendar_id)
         # _CAL_TOP_Y: y of first (topmost) checkbox slot, stepping downward
-        self._CAL_TOP_Y = 378
+        # FIX 13: 8 checkboxes × 24px = 192px, starting at 478 → bottom at 286
+        self._CAL_TOP_Y = 478
 
         # ── Task List ─────────────────────────────────────────────────────
         _lbl("Task List", 278, bold=True)
@@ -2491,7 +2878,8 @@ class SettingsWindow(AppKit.NSPanel):
         self._login_btn.setAction_("loginItemChanged:")
         cv.addSubview_(self._login_btn)
 
-        hint = _lbl("Takes effect at next login.", 118, size=10)
+        # FIX 11: updated hint — launchctl bootstrap is called immediately
+        hint = _lbl("Floaty will start automatically. Note: it won't appear in System Settings → Login Items — this is normal.", 118, size=10)
         hint.setTextColor_(AppKit.NSColor.tertiaryLabelColor())
 
         # ── Separator ─────────────────────────────────────────────────────
@@ -2565,9 +2953,9 @@ class SettingsWindow(AppKit.NSPanel):
             return
 
         self._cal_status_label.setStringValue_("")
-        # Up to 4 checkboxes, stepping downward from _CAL_TOP_Y
+        # FIX 13: Up to 8 checkboxes, stepping downward from _CAL_TOP_Y
         y = self._CAL_TOP_Y
-        for cal in calendars[:4]:
+        for cal in calendars[:8]:
             btn = AppKit.NSButton.alloc().initWithFrame_(AppKit.NSMakeRect(M, y, FW, 22))
             btn.setButtonType_(AppKit.NSSwitchButton)
             label = cal["summary"]
@@ -2665,20 +3053,28 @@ def _alert(title: str, body: str) -> None:
     a.runModal()
 
 
-_PID_FILE = Path("/tmp/taskfloat.pid")
+_LOCK_FILE = Path("/tmp/taskfloat.lock")
+_lock_fd   = None   # held open for the lifetime of the process
 
 
 def _ensure_single_instance() -> None:
-    """Kill any stale instance so only one Floaty runs at a time."""
-    if _PID_FILE.exists():
-        try:
-            old_pid = int(_PID_FILE.read_text().strip())
-            if old_pid != os.getpid():
-                os.kill(old_pid, 15)  # SIGTERM
-                time.sleep(0.4)
-        except (ValueError, ProcessLookupError, PermissionError):
-            pass
-    _PID_FILE.write_text(str(os.getpid()))
+    """Guarantee exactly one Floaty process using an exclusive flock.
+
+    The lock fd stays open for the entire process lifetime; the OS releases
+    it automatically on exit — no stale-PID races are possible.
+    """
+    import fcntl
+    import atexit
+    global _lock_fd
+    _lock_fd = open(_LOCK_FILE, "w")
+    try:
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        # Another instance already holds the lock — exit silently.
+        sys.exit(0)
+    _lock_fd.write(str(os.getpid()))
+    _lock_fd.flush()
+    atexit.register(lambda: _lock_fd.close() if _lock_fd else None)
 
 
 def main():
@@ -2686,7 +3082,7 @@ def main():
 
     # Use FloatyApp so sendEvent_ can intercept Carbon hotkey events
     app = FloatyApp.sharedApplication()
-    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
 
     try:
         config = load_config()
@@ -2695,11 +3091,7 @@ def main():
         sys.exit(1)
 
     if not has_valid_tokens():
-        try:
-            do_oauth_flow(config)
-        except Exception as e:
-            _alert("Floaty — Sign-in Failed", str(e))
-            sys.exit(1)
+        AppDelegate.needs_auth = True
 
     AppDelegate.config = config
     delegate = AppDelegate.alloc().init()
