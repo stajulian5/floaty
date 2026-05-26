@@ -607,6 +607,60 @@ def parse_iso(s: str) -> datetime | None:
     return None
 
 
+def _fetch_completed_today_count(config: dict, token: str) -> int:
+    """Return the number of tasks completed today across all task lists."""
+    headers = {"Authorization": f"Bearer {token}"}
+    today_local = datetime.now().date()
+    try:
+        req = urllib.request.Request(
+            "https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=20",
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            lists_data = json.loads(resp.read())
+    except Exception:
+        return -1  # -1 = network error, caller should keep previous value
+
+    # completedMin/Max are RFC 3339; use start/end of today in UTC
+    now_utc   = datetime.now(timezone.utc)
+    day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end   = day_start + timedelta(days=1)
+
+    def _rfc3339(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    total = 0
+    for tl in lists_data.get("items", []):
+        raw_id = tl["id"]
+        tl_id  = raw_id if raw_id.startswith("@") else urllib.parse.quote(raw_id, safe="")
+        try:
+            url = (
+                f"https://www.googleapis.com/tasks/v1/lists/{tl_id}/tasks"
+                f"?showCompleted=true&showHidden=true"
+                f"&completedMin={_rfc3339(day_start)}&completedMax={_rfc3339(day_end)}"
+                f"&maxResults=100"
+            )
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+        except Exception:
+            continue
+        for task in data.get("items", []):
+            if task.get("status") == "completed":
+                # Double-check completed timestamp is today (local time)
+                completed_str = task.get("completed", "")
+                if completed_str:
+                    try:
+                        completed_dt = datetime.fromisoformat(
+                            completed_str.replace("Z", "+00:00")
+                        ).astimezone().date()
+                        if completed_dt == today_local:
+                            total += 1
+                    except ValueError:
+                        pass
+    return total
+
+
 def _fetch_today_task_titles(config: dict, token: str) -> set[str]:
     """Return a set of uncompleted task titles from all task lists (today's tasks)."""
     headers = {"Authorization": f"Bearer {token}"}
@@ -2012,9 +2066,6 @@ class AppDelegate(AppKit.NSObject):
     # key = event id, value = {"end": datetime (UTC), "orig_end": datetime (UTC)}
     _tracked_tasks: dict = {}
 
-    # External-completion detection
-    _visible_task_ids:  set = set()  # task IDs shown in last refresh (NOW + NEXT)
-    _locally_checked_ids: set = set()  # IDs already counted via Floaty check circle
 
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, hasVisibleWindows):
         """Dock icon click — toggle the floating widget on/off."""
@@ -2191,32 +2242,23 @@ class AppDelegate(AppKit.NSObject):
             events = fetch_current_or_next_event(AppDelegate.config)
             now = datetime.now(timezone.utc)
 
-            # ── Detect tasks completed externally in Google Tasks ─────────────
-            # Any task that was visible last refresh but is now gone (and wasn't
-            # checked off via Floaty) was completed directly in Google Tasks.
-            new_visible_task_ids = {
-                e["id"] for e in events if e.get("is_task")
-            }
-            if AppDelegate._visible_task_ids:  # skip on very first load
-                vanished = (
-                    AppDelegate._visible_task_ids
-                    - new_visible_task_ids
-                    - AppDelegate._locally_checked_ids
+            # ── Sync daily count from Google Tasks (ground truth) ────────────
+            # Ask the Tasks API how many tasks were completed today — covers
+            # check-offs via Floaty, via Google Tasks app, web, or any client.
+            token = get_valid_token(AppDelegate.config)
+            completed_count = _fetch_completed_today_count(AppDelegate.config, token)
+            if completed_count >= 0:  # -1 means network error; keep previous value
+                ud = Foundation.NSUserDefaults.standardUserDefaults()
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                prev_count = AppDelegate._crushed_today
+                AppDelegate._crushed_today = completed_count
+                ud.setObject_forKey_(
+                    {"date": today_str, "count": completed_count},
+                    CRUSHED_TODAY_KEY,
                 )
-                if vanished:
-                    ud = Foundation.NSUserDefaults.standardUserDefaults()
-                    today_str = datetime.now().strftime("%Y-%m-%d")
-                    for _ in vanished:
-                        AppDelegate._crushed_today += 1
-                    ud.setObject_forKey_(
-                        {"date": today_str, "count": AppDelegate._crushed_today},
-                        CRUSHED_TODAY_KEY,
-                    )
+                if completed_count != prev_count:
                     cv = self._content_view
                     self._run_on_main(lambda: cv.setNeedsDisplay_(True))
-                # Prune locally_checked_ids — keep only IDs still potentially visible
-                AppDelegate._locally_checked_ids -= AppDelegate._visible_task_ids
-            AppDelegate._visible_task_ids = new_visible_task_ids
 
             # ── Auto-extend: all uncompleted tasks, not just one ──────────────
             # Next non-task calendar event caps all extensions
@@ -2382,9 +2424,6 @@ class AppDelegate(AppKit.NSObject):
         # Remove this specific task from auto-extend tracking
         event_id = event.get("id", "")
         AppDelegate._tracked_tasks.pop(event_id, None)
-        # Mark as locally checked so the external-completion detector doesn't double-count
-        if event_id:
-            AppDelegate._locally_checked_ids.add(event_id)
         try:
             is_task_only = event.get("task_only", False)
             event_id = event.get("id", "")
