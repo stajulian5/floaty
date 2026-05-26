@@ -2012,6 +2012,10 @@ class AppDelegate(AppKit.NSObject):
     # key = event id, value = {"end": datetime (UTC), "orig_end": datetime (UTC)}
     _tracked_tasks: dict = {}
 
+    # External-completion detection
+    _visible_task_ids:  set = set()  # task IDs shown in last refresh (NOW + NEXT)
+    _locally_checked_ids: set = set()  # IDs already counted via Floaty check circle
+
     def applicationShouldHandleReopen_hasVisibleWindows_(self, app, hasVisibleWindows):
         """Dock icon click — toggle the floating widget on/off."""
         if not hasattr(self, '_panel') or not self._panel:
@@ -2187,6 +2191,33 @@ class AppDelegate(AppKit.NSObject):
             events = fetch_current_or_next_event(AppDelegate.config)
             now = datetime.now(timezone.utc)
 
+            # ── Detect tasks completed externally in Google Tasks ─────────────
+            # Any task that was visible last refresh but is now gone (and wasn't
+            # checked off via Floaty) was completed directly in Google Tasks.
+            new_visible_task_ids = {
+                e["id"] for e in events if e.get("is_task")
+            }
+            if AppDelegate._visible_task_ids:  # skip on very first load
+                vanished = (
+                    AppDelegate._visible_task_ids
+                    - new_visible_task_ids
+                    - AppDelegate._locally_checked_ids
+                )
+                if vanished:
+                    ud = Foundation.NSUserDefaults.standardUserDefaults()
+                    today_str = datetime.now().strftime("%Y-%m-%d")
+                    for _ in vanished:
+                        AppDelegate._crushed_today += 1
+                    ud.setObject_forKey_(
+                        {"date": today_str, "count": AppDelegate._crushed_today},
+                        CRUSHED_TODAY_KEY,
+                    )
+                    cv = self._content_view
+                    self._run_on_main(lambda: cv.setNeedsDisplay_(True))
+                # Prune locally_checked_ids — keep only IDs still potentially visible
+                AppDelegate._locally_checked_ids -= AppDelegate._visible_task_ids
+            AppDelegate._visible_task_ids = new_visible_task_ids
+
             # ── Auto-extend: all uncompleted tasks, not just one ──────────────
             # Next non-task calendar event caps all extensions
             next_cal = next(
@@ -2351,6 +2382,9 @@ class AppDelegate(AppKit.NSObject):
         # Remove this specific task from auto-extend tracking
         event_id = event.get("id", "")
         AppDelegate._tracked_tasks.pop(event_id, None)
+        # Mark as locally checked so the external-completion detector doesn't double-count
+        if event_id:
+            AppDelegate._locally_checked_ids.add(event_id)
         try:
             is_task_only = event.get("task_only", False)
             event_id = event.get("id", "")
