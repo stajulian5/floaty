@@ -44,7 +44,7 @@ except ImportError:
 
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
-VERSION = "1.2.4"  # single source of truth — keep in sync with setup.py plist
+VERSION = "1.2.8"  # single source of truth — keep in sync with setup.py plist
 
 # Bundled OAuth credentials — auto-create config.json on first run.
 # These are public-scope Desktop app credentials (not a server secret).  # nosec
@@ -3173,6 +3173,15 @@ def main():
     # Use FloatyApp so sendEvent_ can intercept Carbon hotkey events
     app = FloatyApp.sharedApplication()
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+
+    # Explicitly set the dock icon from the bundle — overrides any stale icon cache
+    _bundle_resources = Foundation.NSBundle.mainBundle().resourcePath()
+    _icon_path = str(Foundation.NSString.stringWithFormat_(
+        "%@/floaty.icns", _bundle_resources
+    ))
+    _icon = AppKit.NSImage.alloc().initWithContentsOfFile_(_icon_path)
+    if _icon:
+        app.setApplicationIconImage_(_icon)
 
     try:
         config = load_config()
