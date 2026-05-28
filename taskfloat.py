@@ -3218,6 +3218,22 @@ class SettingsWindow(AppKit.NSPanel):
         hint = _lbl("Floaty will start automatically. Note: it won't appear in System Settings → Login Items — this is normal.", 118, size=10)
         hint.setTextColor_(AppKit.NSColor.tertiaryLabelColor())
 
+        # ── Anthropic API Key (Self-Healing) ──────────────────────────────
+        _lbl("Anthropic API Key", 108, bold=True)
+        hint_ai = _lbl(
+            "Used for self-healing: Floaty analyzes crashes and auto-patches itself.",
+            92, size=10,
+        )
+        hint_ai.setTextColor_(AppKit.NSColor.tertiaryLabelColor())
+        self._anthropic_field = AppKit.NSSecureTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, 63, FW, 24)
+        )
+        self._anthropic_field.setPlaceholderString_("sk-ant-api03-…  (optional)")
+        self._anthropic_field.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        self._anthropic_field.setTarget_(self)
+        self._anthropic_field.setAction_("anthropicKeyChanged:")
+        cv.addSubview_(self._anthropic_field)
+
         # ── Separator ─────────────────────────────────────────────────────
         sep = AppKit.NSBox.alloc().initWithFrame_(AppKit.NSMakeRect(M, 55, FW, 1))
         sep.setBoxType_(AppKit.NSBoxSeparator)
@@ -3258,6 +3274,10 @@ class SettingsWindow(AppKit.NSPanel):
         self._login_btn.setState_(
             AppKit.NSOnState if _login_item_enabled() else AppKit.NSOffState
         )
+
+        # Anthropic API key
+        key = config.get("anthropic_api_key", "")
+        self._anthropic_field.setStringValue_(key)
 
         # Fetch calendars and task lists in background
         def _fetch():
@@ -3374,7 +3394,17 @@ class SettingsWindow(AppKit.NSPanel):
             daemon=True,
         ).start()
 
+    def anthropicKeyChanged_(self, sender):
+        key = self._anthropic_field.stringValue().strip()
+        self._config["anthropic_api_key"] = key
+        save_config(self._config)
+
     def doneClicked_(self, sender):
+        # Save Anthropic key on close too (in case user tabbed away without Enter)
+        key = self._anthropic_field.stringValue().strip()
+        if key != self._config.get("anthropic_api_key", ""):
+            self._config["anthropic_api_key"] = key
+            save_config(self._config)
         self.orderOut_(None)
 
 
