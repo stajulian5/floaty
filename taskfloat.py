@@ -2002,7 +2002,8 @@ class ContentView(AppKit.NSView):
                 Foundation.NSURL.URLWithString_("https://calendar.google.com")
             )
 
-    def rightMouseUp_(self, event):
+    def rightMouseDown_(self, event):
+        """Show context menu on press (more reliable than rightMouseUp_ for non-activating panels)."""
         delegate = AppKit.NSApp.delegate()
         menu = AppKit.NSMenu.alloc().init()
 
@@ -2610,7 +2611,22 @@ class AppDelegate(AppKit.NSObject):
         ud       = Foundation.NSUserDefaults.standardUserDefaults()
         open_cal = bool(ud.boolForKey_(self._OPEN_CAL_KEY))
 
-        screen = self._panel.screen() if self._panel else None
+        # Find the screen that actually contains the panel's centre point.
+        # panel.screen() returns nil on secondary displays in some macOS versions.
+        screen = None
+        if self._panel:
+            pf = self._panel.frame()
+            cx = pf.origin.x + pf.size.width  / 2
+            cy = pf.origin.y + pf.size.height / 2
+            for s in AppKit.NSScreen.screens():
+                sf = s.frame()
+                if (sf.origin.x <= cx <= sf.origin.x + sf.size.width and
+                        sf.origin.y <= cy <= sf.origin.y + sf.size.height):
+                    screen = s
+                    break
+        if screen is None:
+            screen = AppKit.NSScreen.mainScreen()
+
         dialog = _HypeDialog.alloc().initWithOpenCal_screen_(open_cal, screen)
         task_title, open_cal = dialog.run()
         AppKit.NSApp.deactivate()
