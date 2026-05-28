@@ -66,7 +66,15 @@ def _ping_launch() -> None:
 
 
 def _auto_update() -> None:
-    """Check GitHub releases for a newer version. Shows a notification + menu item if found."""
+    """Check GitHub releases and silently install if a newer version is found.
+
+    Flow:
+      1. Hit GitHub API for latest release
+      2. If newer: download the DMG asset to /tmp
+      3. Mount the DMG, copy Floaty.app over the running copy
+      4. Unmount, launch a background script that relaunches after we quit
+      5. NSApp.terminate — new version takes over
+    """
     def _check():
         try:
             req = urllib.request.Request(
@@ -75,39 +83,94 @@ def _auto_update() -> None:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
-            tag = data.get("tag_name", "").lstrip("v")   # e.g. "1.2.0"
-            html_url = data.get("html_url", "https://github.com/stajulian5/floaty/releases/latest")
-            if not tag or tag == VERSION:
+
+            tag = data.get("tag_name", "").lstrip("v")
+            if not tag:
                 return
-            # Simple semver comparison
             def ver_tuple(v): return tuple(int(x) for x in v.split("."))
             if ver_tuple(tag) <= ver_tuple(VERSION):
+                return  # already up to date
+
+            # Find the .dmg asset
+            dmg_url = None
+            for asset in data.get("assets", []):
+                if asset.get("name", "").endswith(".dmg"):
+                    dmg_url = asset.get("browser_download_url")
+                    break
+            if not dmg_url:
                 return
-            # New version available — notify on main thread
-            def _notify():
+
+            # ── Download ──────────────────────────────────────────────────
+            dmg_path = Path("/tmp/Floaty_update.dmg")
+            with urllib.request.urlopen(dmg_url, timeout=120) as resp:
+                dmg_path.write_bytes(resp.read())
+
+            # ── Mount ─────────────────────────────────────────────────────
+            result = subprocess.run(
+                ["hdiutil", "attach", str(dmg_path), "-nobrowse", "-quiet",
+                 "-mountpoint", "/tmp/FloatyUpdateMount"],
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                return
+
+            # ── Find Floaty.app on the mounted volume ─────────────────────
+            mounted_app = Path("/tmp/FloatyUpdateMount/Floaty.app")
+            if not mounted_app.exists():
+                subprocess.run(["hdiutil", "detach", "/tmp/FloatyUpdateMount", "-quiet"],
+                               capture_output=True)
+                return
+
+            # ── Stage new app next to current one ────────────────────────
+            current_app = Path(
+                Foundation.NSBundle.mainBundle().bundlePath()
+            )
+            staged_app = Path("/tmp/Floaty_staged.app")
+            if staged_app.exists():
+                subprocess.run(["rm", "-rf", str(staged_app)])
+            subprocess.run(["cp", "-R", str(mounted_app), str(staged_app)])
+            subprocess.run(["hdiutil", "detach", "/tmp/FloatyUpdateMount", "-quiet"],
+                           capture_output=True)
+
+            # ── Write a tiny launcher script that swaps and relaunches ────
+            relaunch_script = f"""#!/bin/bash
+# Wait for old Floaty to exit
+while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.3; done
+# Swap in new app
+rm -rf "{current_app}"
+cp -R "{staged_app}" "{current_app}"
+rm -rf "{staged_app}"
+# Remove lock so new instance can start
+rm -f /tmp/taskfloat.lock
+# Relaunch
+open -a "{current_app}"
+"""
+            script_path = Path("/tmp/floaty_relaunch.sh")
+            script_path.write_text(relaunch_script)
+            script_path.chmod(0o755)
+            subprocess.Popen(["bash", str(script_path)],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+
+            # ── Notify user then quit so the script can take over ─────────
+            def _finish():
                 try:
                     subprocess.run([
                         "osascript", "-e",
-                        f'display notification "Version {tag} is available. Click to update." '
-                        f'with title "🚀 Floaty Update Available"'
+                        f'display notification "Installing v{tag} — back in a moment." '
+                        f'with title "🚀 Floaty updating…"'
                     ], check=False)
                 except Exception:
                     pass
-                # Add menu item if status bar exists
-                delegate = AppKit.NSApp.delegate()
-                if hasattr(delegate, '_status_menu') and delegate._status_menu:
-                    update_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                        f"⬆️  Update to v{tag}", "openUpdate:", ""
-                    )
-                    update_item.setTarget_(delegate)
-                    update_item.setRepresentedObject_(html_url)
-                    delegate._status_menu.insertItem_atIndex_(update_item, 0)
-                    delegate._status_menu.insertItem_atIndex_(AppKit.NSMenuItem.separatorItem(), 1)
-                    delegate._update_url = html_url
-            Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(_notify)
+                time.sleep(1.5)
+                AppKit.NSApp.terminate_(None)
+
+            Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(_finish)
+
         except Exception:
             pass
-        # FIX 18: analytics ping removed from here — now called via _ping_launch()
+
     threading.Thread(target=_check, daemon=True).start()
 
 
@@ -2481,10 +2544,6 @@ class AppDelegate(AppKit.NSObject):
             ], check=False)
         except Exception:
             pass
-
-    def openUpdate_(self, sender):
-        url = getattr(self, '_update_url', 'https://github.com/stajulian5/floaty/releases/latest')
-        AppKit.NSWorkspace.sharedWorkspace().openURL_(Foundation.NSURL.URLWithString_(url))
 
     def _show_welcome_window(self):
         """Create and show the first-run welcome/auth window."""
