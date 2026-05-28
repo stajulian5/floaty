@@ -44,7 +44,11 @@ except ImportError:
 
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
-VERSION = "1.2.8"  # single source of truth — keep in sync with setup.py plist
+VERSION = "1.3.1"  # single source of truth — keep in sync with setup.py plist
+
+# Self-healing crash detection
+_CLEAN_EXIT_FILE = Path("/tmp/floaty_exit_clean")   # written on graceful quit
+_FLOATY_LOG      = Path.home() / "Library/Logs/Floaty.log"
 
 # Bundled OAuth credentials — auto-create config.json on first run.
 # These are public-scope Desktop app credentials (not a server secret).  # nosec
@@ -63,6 +67,187 @@ def _ping_launch() -> None:
         except Exception:
             pass
     threading.Thread(target=_ping, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Self-healing crash recovery
+# ---------------------------------------------------------------------------
+
+def _mark_clean_exit() -> None:
+    """Call on any graceful quit so the next launch knows it was intentional."""
+    try:
+        _CLEAN_EXIT_FILE.write_text(str(os.getpid()))
+    except Exception:
+        pass
+
+
+def _extract_crash_context(log_text: str, source_code: str) -> str:
+    """Pull the traceback + relevant source lines from the log."""
+    import re
+    src_lines = source_code.splitlines()
+
+    # Grab the last Python traceback block
+    tb_matches = list(re.finditer(r'Traceback \(most recent call last\).*?(?=\n\n|\Z)', log_text, re.DOTALL))
+    traceback_block = tb_matches[-1].group(0) if tb_matches else log_text[-3000:]
+
+    # Find line numbers mentioned in taskfloat.py
+    line_nums = [int(n) for n in re.findall(r'taskfloat\.py", line (\d+)', traceback_block)]
+
+    code_snippets = []
+    for ln in sorted(set(line_nums)):
+        start = max(0, ln - 20)
+        end   = min(len(src_lines), ln + 20)
+        snippet = "\n".join(f"{i+1:4d}: {src_lines[i]}" for i in range(start, end))
+        code_snippets.append(f"[taskfloat.py around line {ln}]\n{snippet}")
+
+    return traceback_block + "\n\n" + "\n\n".join(code_snippets)
+
+
+def _call_anthropic(api_key: str, prompt: str) -> str:
+    """Minimal Anthropic Messages API call — no SDK required."""
+    body = json.dumps({
+        "model": "claude-opus-4-5",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={
+            "x-api-key":          api_key,
+            "anthropic-version":  "2023-06-01",
+            "content-type":       "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read())
+    return data["content"][0]["text"]
+
+
+def _apply_fix_to_bundle(find_str: str, replace_str: str) -> bool:
+    """Patch taskfloat.py inside the running bundle (no rebuild needed)."""
+    bundle_py = Path(Foundation.NSBundle.mainBundle().resourcePath()) / "taskfloat.py"
+    if not bundle_py.exists():
+        return False
+    src = bundle_py.read_text()
+    if find_str not in src:
+        return False
+    bundle_py.write_text(src.replace(find_str, replace_str, 1))
+
+    # Also patch the project source so the next build inherits the fix
+    project_py = Path(__file__)
+    if project_py.exists():
+        psrc = project_py.read_text()
+        if find_str in psrc:
+            project_py.write_text(psrc.replace(find_str, replace_str, 1))
+    return True
+
+
+def _check_and_heal_crash() -> None:
+    """
+    Called at startup (background thread).
+
+    If the previous run did NOT write _CLEAN_EXIT_FILE we assume it crashed.
+    We read the log, ask Claude for a minimal patch, apply it to the bundle,
+    then relaunch so the fix is live on the very next run.
+    """
+    # First-ever run: no marker yet — not a crash
+    if not _CLEAN_EXIT_FILE.exists() and not _FLOATY_LOG.exists():
+        return
+
+    clean = _CLEAN_EXIT_FILE.exists()
+    if _CLEAN_EXIT_FILE.exists():
+        try:
+            _CLEAN_EXIT_FILE.unlink()
+        except Exception:
+            pass
+
+    if clean:
+        return  # graceful quit — nothing to fix
+
+    # ── Crash detected ────────────────────────────────────────────────────
+    try:
+        log_text = _FLOATY_LOG.read_text(errors="replace")
+    except Exception:
+        return
+
+    # Only act if there's a real Python traceback
+    if "Traceback (most recent call last)" not in log_text:
+        return
+
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+
+    api_key = config.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return  # no key configured — skip silently
+
+    try:
+        source_code = (
+            Path(Foundation.NSBundle.mainBundle().resourcePath()) / "taskfloat.py"
+        ).read_text()
+    except Exception:
+        return
+
+    context = _extract_crash_context(log_text, source_code)
+
+    prompt = f"""You are reviewing a crash in Floaty, a macOS Python/PyObjC app (taskfloat.py).
+
+CRASH LOG (last traceback + relevant source lines):
+{context}
+
+Your task:
+1. Identify the root cause in 1-2 sentences.
+2. Produce the MINIMAL safe fix — prefer wrapping in try/except or adding a None-check over restructuring.
+3. Return ONLY valid JSON, no markdown, no explanation outside the JSON:
+
+{{
+  "analysis": "<one sentence>",
+  "find": "<exact string to find in taskfloat.py, including indentation>",
+  "replace": "<replacement string, same indentation>"
+}}
+
+If you cannot determine a safe fix, return: {{"analysis": "<reason>", "find": null, "replace": null}}
+"""
+
+    def _heal():
+        try:
+            response = _call_anthropic(api_key, prompt)
+            # Strip markdown fences if present
+            response = response.strip().strip("```json").strip("```").strip()
+            fix = json.loads(response)
+
+            if not fix.get("find") or not fix.get("replace"):
+                return
+
+            applied = _apply_fix_to_bundle(fix["find"], fix["replace"])
+            if not applied:
+                return
+
+            # Notify and relaunch with the patched bundle
+            analysis_short = fix["analysis"][:80]
+            subprocess.run([
+                "osascript", "-e",
+                f'display notification "Auto-fixed: {analysis_short}" '
+                f'with title "🚀 Floaty self-healed"'
+            ], check=False)
+            time.sleep(1.5)
+
+            bundle_path = Foundation.NSBundle.mainBundle().bundlePath()
+            _CLEAN_EXIT_FILE.write_text("pre-relaunch")  # avoid re-trigger
+            subprocess.Popen(["open", "-a", bundle_path],
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+            AppKit.NSApp.terminate_(None)
+
+        except Exception:
+            pass
+
+    threading.Thread(target=_heal, daemon=True).start()
 
 
 def _auto_update() -> None:
@@ -164,6 +349,7 @@ open -a "{current_app}"
                 except Exception:
                     pass
                 time.sleep(1.5)
+                _mark_clean_exit()
                 AppKit.NSApp.terminate_(None)
 
             Foundation.NSOperationQueue.mainQueue().addOperationWithBlock_(_finish)
@@ -2289,6 +2475,7 @@ class AppDelegate(AppKit.NSObject):
 
     def reallyQuit_(self, sender):
         """Completely quit Floaty."""
+        _mark_clean_exit()
         AppKit.NSApp.terminate_(self)
 
     def _update_status_title(self):
@@ -3228,6 +3415,7 @@ def _ensure_single_instance() -> None:
 
 def main():
     _ensure_single_instance()
+    _check_and_heal_crash()   # detects crashes from prior run; no-op on clean exit
 
     # Use FloatyApp so sendEvent_ can intercept Carbon hotkey events
     app = FloatyApp.sharedApplication()
