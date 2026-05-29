@@ -44,7 +44,7 @@ except ImportError:
 
 CONFIG_PATH = Path.home() / ".taskfloat" / "config.json"
 KEYCHAIN_SERVICE = "com.taskfloat"
-VERSION = "1.3.1"  # single source of truth — keep in sync with setup.py plist
+VERSION = "1.3.4"  # single source of truth — keep in sync with setup.py plist
 
 # Self-healing crash detection
 _CLEAN_EXIT_FILE = Path("/tmp/floaty_exit_clean")   # written on graceful quit
