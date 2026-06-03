@@ -31,3 +31,15 @@ Floaty.app/
 Package.swift
 Sources/
 .build/
+
+# Root-level website duplicates (website lives in docs/)
+/index.html
+/privacy.html
+/gifs/
+/logos/
+
+# Build artifacts
+Floaty_Installer.pkg
+entitlements.plist
+floaty_stub.c
+make_dmg_bg.py
