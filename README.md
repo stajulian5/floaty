@@ -1,8 +1,8 @@
 # Floaty
 
-A tiny floating widget for macOS that shows your current Google Calendar event — or the next one coming up. Lives on top of every app, across every Space. Drag it anywhere.
+**[→ floaty website](https://stajulian5.github.io/floaty/)**
 
-![Floaty widget showing a current event](screenshot.png)
+A tiny floating widget for macOS that shows your current Google Calendar event — or the next one coming up. Lives on top of every app, across every Space. Drag it anywhere.
 
 ---
 
