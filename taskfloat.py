@@ -1535,14 +1535,18 @@ def get_widget_w(config: dict) -> int:
     size = config.get("widget_size", "normal")
     return {"compact": 210, "normal": 240, "large": 275}.get(size, 240)
 
+def get_widget_scale(config: dict) -> float:
+    """Scale factor for fonts and heights — derived from width ratio vs normal."""
+    return get_widget_w(config) / 240.0  # compact≈0.875, normal=1.0, large≈1.146
+
 # Keep a module-level alias so older call-sites that reference WIDGET_W still work
 WIDGET_W = 240  # default; overridden at runtime via get_widget_w(config)
 CORNER_R        = 12
 PADDING_L       = 28   # left text margin (shifted right to make room for "+")
 PLUS_X          = 7    # x position of the always-visible "+" button
-BLOCK_H         = 46   # height of one event block
-HISTORY_HEADER_H = 20  # height of the "recently crushed" label
-HISTORY_ITEM_H   = 15  # height per history row
+BLOCK_H         = 46   # height of one event block  (scaled at runtime)
+HISTORY_HEADER_H = 20  # height of the "recently crushed" label (scaled at runtime)
+HISTORY_ITEM_H   = 15  # height per history row (scaled at runtime)
 HISTORY_KEY      = "taskfloat.crushedHistory"
 CRUSHED_TODAY_KEY = "taskfloat.crushedToday"
 
@@ -1639,15 +1643,20 @@ class ContentView(AppKit.NSView):
     def _history_extra_height(self):
         if not self._history_visible or not self._history:
             return 0
-        return HISTORY_HEADER_H + len(self._history) * HISTORY_ITEM_H + 8
+        cfg = getattr(AppDelegate, "config", {}) if "AppDelegate" in dir() else {}
+        sc = get_widget_scale(cfg)
+        return round(HISTORY_HEADER_H * sc) + len(self._history) * round(HISTORY_ITEM_H * sc) + 8
 
     def _resize_to_fit(self, animate=False):
         win = self.window()
         if not win:
             return
         cfg = getattr(AppDelegate, "config", {}) if "AppDelegate" in dir() else {}
+        sc = get_widget_scale(cfg)
         widget_w = get_widget_w(cfg)
-        base_h = WIDGET_H_DOUBLE if len(self._events) >= 2 else WIDGET_H_SINGLE
+        h_single = round(WIDGET_H_SINGLE * sc)
+        h_double = round(WIDGET_H_DOUBLE * sc)
+        base_h = h_double if len(self._events) >= 2 else h_single
         h = base_h + self._history_extra_height()
         old = win.frame()
         if int(old.size.height) == int(h) and int(old.size.width) == int(widget_w):
@@ -1728,6 +1737,9 @@ class ContentView(AppKit.NSView):
         bounds = self.bounds()
         w, h = bounds.size.width, bounds.size.height
         p = self._pal()
+        cfg = getattr(AppDelegate, "config", {}) if "AppDelegate" in dir() else {}
+        sc  = get_widget_scale(cfg)
+        block_h = round(BLOCK_H * sc)
 
         # Background pill
         pill = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
@@ -1741,7 +1753,7 @@ class ContentView(AppKit.NSView):
         has_tasks = self._status == "ok" and len(self._events) > 0
         plus_color = p["plus_grey"] if has_tasks else AppKit.NSColor.systemGreenColor()
         plus_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(18, AppKit.NSFontWeightLight),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(18 * sc), AppKit.NSFontWeightLight),
             AppKit.NSForegroundColorAttributeName: plus_color,
         }
         plus_str = AppKit.NSAttributedString.alloc().initWithString_attributes_("+", plus_attrs)
@@ -1756,32 +1768,34 @@ class ContentView(AppKit.NSView):
         AppKit.NSRectFill(AppKit.NSMakeRect(sep_x, 8, 0.5, h - 16))
 
         if self._status == "loading":
-            self._draw_single_message("…", AppKit.NSColor.systemGrayColor(), self._msg, "", 0, p)
+            self._draw_single_message("…", AppKit.NSColor.systemGrayColor(), self._msg, "", 0, p, sc=sc)
         elif self._status == "error":
-            self._draw_single_message("! ERROR", AppKit.NSColor.systemRedColor(), "Could not load — click to retry", self._msg, 0, p)
+            self._draw_single_message("! ERROR", AppKit.NSColor.systemRedColor(), "Could not load — click to retry", self._msg, 0, p, sc=sc)
         elif not self._events:
             self._check_rects = []
-            self._draw_free_state(w, h, p)
+            self._draw_free_state(w, h, p, sc=sc)
         else:
             self._check_rects = []
             for i, ev in enumerate(self._events[:2]):
-                y = i * (BLOCK_H + 2)
+                y = i * (block_h + 2)
                 if i == 1:
-                    div_y = BLOCK_H + 1
+                    div_y = block_h + 1
                     p["sep_h"].setFill()
                     AppKit.NSRectFill(AppKit.NSMakeRect(PADDING_L, div_y, w - PADDING_L * 2, 1))
-                self._draw_event(ev, y, i, p)
+                self._draw_event(ev, y, i, p, block_h=block_h, sc=sc)
 
         # History section (below main content)
         if self._history_visible and self._history:
-            base_h = WIDGET_H_DOUBLE if len(self._events) >= 2 else WIDGET_H_SINGLE
-            self._draw_history_section(base_h, w, p)
+            h_single = round(WIDGET_H_SINGLE * sc)
+            h_double = round(WIDGET_H_DOUBLE * sc)
+            base_h = h_double if len(self._events) >= 2 else h_single
+            self._draw_history_section(base_h, w, p, sc=sc)
 
         # Toast overlay (e.g. "✓ Task added!") — drawn on top of everything
         if self._toast_text:
             text, color = self._toast_text
             t_attrs = {
-                AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(11.5, AppKit.NSFontWeightSemibold),
+                AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(11.5 * sc), AppKit.NSFontWeightSemibold),
                 AppKit.NSForegroundColorAttributeName: color,
             }
             ts = AppKit.NSAttributedString.alloc().initWithString_attributes_(text, t_attrs)
@@ -1801,7 +1815,7 @@ class ContentView(AppKit.NSView):
     def _badge_color(self, is_current):
         return AppKit.NSColor.systemGreenColor() if is_current else AppKit.NSColor.systemOrangeColor()
 
-    def _draw_event(self, ev, y, event_idx, p):
+    def _draw_event(self, ev, y, event_idx, p, block_h=BLOCK_H, sc=1.0):
         is_task    = ev.get("is_task", False)
         is_current = ev["is_current"]
 
@@ -1812,14 +1826,14 @@ class ContentView(AppKit.NSView):
         # Reserve right margin for the check circle on task rows
         right_inset = 36 if is_task else 12
         self._draw_single_message(badge_text, badge_color, ev["title"],
-                                  format_time_range(ev), y, p, right_inset=right_inset)
+                                  format_time_range(ev), y, p, right_inset=right_inset, sc=sc)
 
         # Check circle — shown for ALL tasks (NOW and NEXT), never for calendar events
         if is_task:
             w = self.bounds().size.width
             r = 9
             cx = w - 16
-            cy = y + BLOCK_H // 2
+            cy = y + block_h // 2
             check_rect = AppKit.NSMakeRect(cx - r, cy - r, r * 2, r * 2)
             self._check_rects.append((event_idx, check_rect))
             circle_path = AppKit.NSBezierPath.bezierPathWithOvalInRect_(
@@ -1833,14 +1847,17 @@ class ContentView(AppKit.NSView):
                 circle_path.setLineWidth_(1.5)
                 circle_path.stroke()
 
-    def _draw_history_section(self, y, w, p):
+    def _draw_history_section(self, y, w, p, sc=1.0):
+        hist_header_h = round(HISTORY_HEADER_H * sc)
+        hist_item_h   = round(HISTORY_ITEM_H   * sc)
+
         # Separator
         p["history_sep"].setFill()
         AppKit.NSRectFill(AppKit.NSMakeRect(PADDING_L, y + 1, w - PADDING_L * 2, 0.5))
 
         # Header
         hdr_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(8, AppKit.NSFontWeightSemibold),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(8 * sc), AppKit.NSFontWeightSemibold),
             AppKit.NSForegroundColorAttributeName: p["history_hdr"],
             AppKit.NSKernAttributeName: 1.4,
         }
@@ -1850,22 +1867,22 @@ class ContentView(AppKit.NSView):
 
         # Items
         item_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(10, AppKit.NSFontWeightLight),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(10 * sc), AppKit.NSFontWeightLight),
             AppKit.NSForegroundColorAttributeName: p["history_item"],
         }
-        iy = y + HISTORY_HEADER_H + 4
+        iy = y + hist_header_h + 4
         for title in self._history:
             trunc = (title[:30] + "…") if len(title) > 30 else title
             AppKit.NSAttributedString.alloc().initWithString_attributes_(
                 "✓  " + trunc, item_attrs
             ).drawAtPoint_(AppKit.NSPoint(PADDING_L, iy))
-            iy += HISTORY_ITEM_H
+            iy += hist_item_h
 
 
-    def _draw_free_state(self, w, h, p):
+    def _draw_free_state(self, w, h, p, sc=1.0):
         cy = h / 2
         q_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(10.5, AppKit.NSFontWeightMedium),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(10.5 * sc), AppKit.NSFontWeightMedium),
             AppKit.NSForegroundColorAttributeName: p["free_text"],
         }
         q_str = AppKit.NSAttributedString.alloc().initWithString_attributes_(
@@ -1877,7 +1894,7 @@ class ContentView(AppKit.NSView):
         ps = AppKit.NSMutableParagraphStyle.alloc().init()
         ps.setLineBreakMode_(AppKit.NSLineBreakByTruncatingTail)
         sub_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(11),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(round(11 * sc)),
             AppKit.NSForegroundColorAttributeName: AppKit.NSColor.colorWithWhite_alpha_(0.4, 1.0),
             AppKit.NSParagraphStyleAttributeName: ps,
         }
@@ -1887,42 +1904,47 @@ class ContentView(AppKit.NSView):
         sub_rect = AppKit.NSMakeRect(PADDING_L, cy - 26, w - PADDING_L * 2, 16)
         sub_str.drawInRect_(sub_rect)
 
-    def _draw_single_message(self, badge, badge_color, title, subtitle, y, p, right_inset=12):
+    def _draw_single_message(self, badge, badge_color, title, subtitle, y, p, right_inset=12, sc=1.0):
         w = self.bounds().size.width
         text_w = w - PADDING_L - right_inset   # usable width for title / subtitle
+
+        # Scale vertical offsets proportionally so content stays centred in the block
+        y_badge    = round(y + 8  * sc)
+        y_title    = round(y + 20 * sc)
+        y_subtitle = round(y + 34 * sc)
 
         # Paragraph style: single line, truncate tail with "…"
         ps = AppKit.NSMutableParagraphStyle.alloc().init()
         ps.setLineBreakMode_(AppKit.NSLineBreakByTruncatingTail)
-        ps.setMaximumLineHeight_(16)
+        ps.setMaximumLineHeight_(round(16 * sc))
 
         badge_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(9, AppKit.NSFontWeightSemibold),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(9 * sc), AppKit.NSFontWeightSemibold),
             AppKit.NSForegroundColorAttributeName: badge_color,
             AppKit.NSKernAttributeName: 1.3,
         }
         title_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(12, AppKit.NSFontWeightMedium),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(12 * sc), AppKit.NSFontWeightMedium),
             AppKit.NSForegroundColorAttributeName: p["title"],
             AppKit.NSParagraphStyleAttributeName: ps,
         }
         sub_attrs = {
-            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(10, AppKit.NSFontWeightRegular),
+            AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(10 * sc), AppKit.NSFontWeightRegular),
             AppKit.NSForegroundColorAttributeName: p["subtitle"],
             AppKit.NSParagraphStyleAttributeName: ps,
         }
 
         # Badge (short — drawAtPoint is fine)
         AppKit.NSAttributedString.alloc().initWithString_attributes_(badge, badge_attrs)\
-            .drawAtPoint_(AppKit.NSPoint(PADDING_L, y + 8))
+            .drawAtPoint_(AppKit.NSPoint(PADDING_L, y_badge))
 
         # Title — draw into a bounded rect so NSLineBreakByTruncatingTail kicks in
-        title_rect = AppKit.NSMakeRect(PADDING_L, y + 20, text_w, 16)
+        title_rect = AppKit.NSMakeRect(PADDING_L, y_title, text_w, round(16 * sc))
         AppKit.NSAttributedString.alloc().initWithString_attributes_(title, title_attrs)\
             .drawInRect_(title_rect)
 
         if subtitle:
-            sub_rect = AppKit.NSMakeRect(PADDING_L, y + 34, text_w, 14)
+            sub_rect = AppKit.NSMakeRect(PADDING_L, y_subtitle, text_w, round(14 * sc))
             AppKit.NSAttributedString.alloc().initWithString_attributes_(subtitle, sub_attrs)\
                 .drawInRect_(sub_rect)
 
@@ -2344,7 +2366,8 @@ class AppDelegate(AppKit.NSObject):
             AppDelegate._crushed_today = 0
 
         widget_w = get_widget_w(AppDelegate.config)
-        size = AppKit.NSSize(widget_w, WIDGET_H_SINGLE)
+        sc = get_widget_scale(AppDelegate.config)
+        size = AppKit.NSSize(widget_w, round(WIDGET_H_SINGLE * sc))
         origin = self._saved_origin(size)
         frame = AppKit.NSMakeRect(origin.x, origin.y, size.width, size.height)
 
