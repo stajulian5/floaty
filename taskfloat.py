@@ -1470,13 +1470,22 @@ class ConfettiView(AppKit.NSView):
 
         if self._elapsed >= 9.5 or (self._elapsed >= 9.0 and not self._particles):
             self._timer.invalidate()
-            w = self.window()
-            if w in _confetti_windows:
-                _confetti_windows.remove(w)
-            w.close()
+            self._timer = None
+            # Defer the window close to the next runloop turn. Closing now
+            # (still inside this view's own timer callback) can drop the
+            # last reference to `self` and deallocate it mid-call, which
+            # crashes when the autorelease pool pops on return (SIGSEGV).
+            self.performSelector_withObject_afterDelay_("_finishConfetti:", None, 0.0)
             return
 
         self.setNeedsDisplay_(True)
+
+    def _finishConfetti_(self, _obj):
+        w = self.window()
+        if w in _confetti_windows:
+            _confetti_windows.remove(w)
+        if w:
+            w.close()
 
     def isOpaque(self):
         return False
@@ -2810,17 +2819,25 @@ class AppDelegate(AppKit.NSObject):
         self._settings_win.makeKeyAndOrderFront_(None)
 
     def _apply_widget_size(self):
-        """Resize the floating panel to the new width while keeping the same center."""
+        """Resize the floating panel to the new width+height for the chosen size tier."""
+        # Keep the top-left corner fixed so the widget doesn't jump around
+        sc    = get_widget_scale(AppDelegate.config)
         new_w = get_widget_w(AppDelegate.config)
         old_frame = self._panel.frame()
-        old_cx = old_frame.origin.x + old_frame.size.width / 2
-        old_cy = old_frame.origin.y + old_frame.size.height / 2
-        new_x = old_cx - new_w / 2
-        new_frame = AppKit.NSMakeRect(new_x, old_frame.origin.y, new_w, old_frame.size.height)
+
+        # Compute the correct height for the current content at the new scale
+        n_events = len(self._content_view._events) if self._content_view else 0
+        base_h = round((WIDGET_H_DOUBLE if n_events >= 2 else WIDGET_H_SINGLE) * sc)
+        history_extra = self._content_view._history_extra_height() if self._content_view else 0
+        new_h = base_h + history_extra
+
+        # Anchor top-left corner
+        new_y = old_frame.origin.y + old_frame.size.height - new_h
+        new_frame = AppKit.NSMakeRect(old_frame.origin.x, new_y, new_w, new_h)
         self._panel.setFrame_display_(new_frame, True)
-        self._content_view.setFrame_(AppKit.NSMakeRect(0, 0, new_w, old_frame.size.height))
+        self._content_view.setFrame_(AppKit.NSMakeRect(0, 0, new_w, new_h))
         Foundation.NSUserDefaults.standardUserDefaults().setObject_forKey_(
-            {"x": new_x, "y": old_frame.origin.y}, WINDOW_ORIGIN_KEY
+            {"x": old_frame.origin.x, "y": new_y}, WINDOW_ORIGIN_KEY
         )
         self._panel.orderFrontRegardless()
 
