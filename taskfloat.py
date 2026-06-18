@@ -1715,28 +1715,37 @@ class ContentView(AppKit.NSView):
         # Build input subview in the newly revealed bottom area.
         # ContentView is flipped (y=0=top) so y=old_h places sub right below events.
         # The sub itself is NOT flipped: y=0=bottom, y=INPUT_H=top.
-        PAD, M   = 10, 12
-        cancel_w = 70
-        add_w    = widget_w - M * 2 - cancel_w - 8
+        #
+        # Layout (bottom→top within sub, y=0=bottom):
+        #   8  buttons (h=24)
+        #  38  checkbox (h=16)
+        #  60  text field (h=28)
+        #  96  → 20px top padding before separator
+        BTN_H, CB_H, FLD_H = 24, 16, 28
+        PAD_BOT, GAP, PAD_TOP = 8, 6, INPUT_H - 8 - BTN_H - GAP - CB_H - GAP - FLD_H
+        M        = 12
+        cancel_w = 68
+        add_w    = widget_w - M * 2 - cancel_w - 6
 
         sub = AppKit.NSView.alloc().initWithFrame_(
             AppKit.NSMakeRect(0, old_h, widget_w, INPUT_H)
         )
 
+        field_y = PAD_BOT + BTN_H + GAP + CB_H + GAP
         field = AppKit.NSTextField.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, INPUT_H - PAD - 36, widget_w - M * 2, 36)
+            AppKit.NSMakeRect(M, field_y, widget_w - M * 2, FLD_H)
         )
         field.setPlaceholderString_("Task name…")
-        field.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+        field.setFont_(AppKit.NSFont.systemFontOfSize_weight_(round(12 * get_widget_scale(cfg)), AppKit.NSFontWeightMedium))
         field.setBezeled_(True)
         field.setBezelStyle_(1)  # NSTextFieldRoundedBezel
         field.setFocusRingType_(AppKit.NSFocusRingTypeNone)
         sub.addSubview_(field)
         self._input_field = field
 
-        cb_y = INPUT_H - PAD - 36 - 8 - 20
+        cb_y = PAD_BOT + BTN_H + GAP
         checkbox = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, cb_y, widget_w - M * 2, 20)
+            AppKit.NSMakeRect(M, cb_y, widget_w - M * 2, CB_H)
         )
         checkbox.setButtonType_(AppKit.NSSwitchButton)
         checkbox.setTitle_("Open Calendar to schedule")
@@ -1746,7 +1755,7 @@ class ContentView(AppKit.NSView):
         self._input_checkbox = checkbox
 
         cancel_btn = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, PAD, cancel_w, 28)
+            AppKit.NSMakeRect(M, PAD_BOT, cancel_w, BTN_H)
         )
         cancel_btn.setTitle_("Cancel")
         cancel_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
@@ -1757,7 +1766,7 @@ class ContentView(AppKit.NSView):
         sub.addSubview_(cancel_btn)
 
         add_btn = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M + cancel_w + 8, PAD, add_w, 28)
+            AppKit.NSMakeRect(M + cancel_w + 6, PAD_BOT, add_w, BTN_H)
         )
         add_btn.setTitle_("Add Task ↵")
         add_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
@@ -2118,14 +2127,10 @@ class ContentView(AppKit.NSView):
     # ---- Drag ------------------------------------------------------------
 
     def mouseDown_(self, event):
-        if self._input_mode:
-            return
         self._drag_start  = event.locationInWindow()
         self._is_dragging = False
 
     def mouseDragged_(self, event):
-        if self._input_mode:
-            return
         self._is_dragging = True
         win = self.window()
         if not win:
@@ -2150,11 +2155,14 @@ class ContentView(AppKit.NSView):
         # Convert window coords → view coords (respects isFlipped)
         loc = self.convertPoint_fromView_(event.locationInWindow(), None)
 
-        # "+" button hit-test (free state)
+        # "+" button — toggle input mode open/closed
         if self._plus_rect and AppKit.NSPointInRect(loc, self._plus_rect):
-            delegate = AppKit.NSApp.delegate()
-            if delegate:
-                delegate.showAddTaskDialog()
+            if self._input_mode:
+                self.exitInputMode()
+            else:
+                delegate = AppKit.NSApp.delegate()
+                if delegate:
+                    delegate.showAddTaskDialog()
             return
 
         # Check circle hit-test
