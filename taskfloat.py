@@ -2544,7 +2544,13 @@ class AppDelegate(AppKit.NSObject):
                     self._run_on_main(lambda: cv.setNeedsDisplay_(True))
 
             # ── Auto-extend: all uncompleted tasks, not just one ──────────────
-            # Next non-task calendar event caps all extensions
+            # If a non-task calendar event is happening right now, don't extend
+            # tasks — the meeting takes priority and the task can resume after.
+            current_cal_event = next(
+                (e for e in events if e.get("is_current") and not e.get("is_task")),
+                None
+            )
+            # Next non-task calendar event caps how far extensions can reach
             next_cal = next(
                 (e for e in events if not e.get("is_current") and not e.get("is_task")),
                 None
@@ -2553,6 +2559,8 @@ class AppDelegate(AppKit.NSObject):
             extended_count = 0
 
             for task_id, info in list(AppDelegate._tracked_tasks.items()):
+                if current_cal_event:
+                    break  # in a meeting — don't extend any tasks
                 tracked_end = info["end"]
                 orig_end    = info["orig_end"]
                 # Only extend tasks that have expired AND are no longer in current events
