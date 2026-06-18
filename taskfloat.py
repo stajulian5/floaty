@@ -1529,26 +1529,30 @@ def show_confetti(screen=None):
     win.setContentView_(view)
 
     # Show a celebration GIF centered on screen during confetti
-    if WebKit:
-        gif_path = _random_hype_gif()
-        if gif_path:
-            GIF_SZ, BG_PAD = 240, 16
-            bg_w  = GIF_SZ + BG_PAD * 2
-            bg_h  = GIF_SZ + BG_PAD * 2
-            bg_x  = (frame.size.width  - bg_w) / 2
-            bg_y  = (frame.size.height - bg_h) / 2
-            bg_view = _DialogBgView.alloc().initWithFrame_(
-                AppKit.NSMakeRect(bg_x, bg_y, bg_w, bg_h)
-            )
-            wv_config = WebKit.WKWebViewConfiguration.alloc().init()
-            wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
-                AppKit.NSMakeRect(BG_PAD, BG_PAD, GIF_SZ, GIF_SZ), wv_config
-            )
-            wv.setValue_forKey_(AppKit.NSColor.clearColor(), "backgroundColor")
-            gif_url = Foundation.NSURL.fileURLWithPath_(str(gif_path))
-            wv.loadFileURL_allowingReadAccessToURL_(gif_url, gif_url)
-            bg_view.addSubview_(wv)
-            view.addSubview_(bg_view)
+    # Wrapped in try/except so any failure here never blocks the confetti itself
+    try:
+        if WebKit:
+            gif_path = _random_hype_gif()
+            if gif_path:
+                GIF_SZ, BG_PAD = 240, 16
+                bg_w  = GIF_SZ + BG_PAD * 2
+                bg_h  = GIF_SZ + BG_PAD * 2
+                bg_x  = (frame.size.width  - bg_w) / 2
+                bg_y  = (frame.size.height - bg_h) / 2
+                bg_view = _DialogBgView.alloc().initWithFrame_(
+                    AppKit.NSMakeRect(bg_x, bg_y, bg_w, bg_h)
+                )
+                wv_config = WebKit.WKWebViewConfiguration.alloc().init()
+                wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
+                    AppKit.NSMakeRect(BG_PAD, BG_PAD, GIF_SZ, GIF_SZ), wv_config
+                )
+                wv.setValue_forKey_(AppKit.NSColor.clearColor(), "backgroundColor")
+                gif_url = Foundation.NSURL.fileURLWithPath_(str(gif_path))
+                wv.loadFileURL_allowingReadAccessToURL_(gif_url, gif_url)
+                bg_view.addSubview_(wv)
+                view.addSubview_(bg_view)
+    except Exception:
+        pass
 
     _confetti_windows.append(win)   # prevent GC
     win.orderFrontRegardless()
@@ -1594,7 +1598,8 @@ class ContentView(AppKit.NSView):
         self._events        = []   # list of event dicts (0-2)
         self._status        = "loading"   # "loading" | "error" | "ok"
         self._msg           = "Loading…"  # shown when status != "ok"
-        self._checking_off  = False
+        self._checking_off    = False
+        self._checking_off_id = None   # event id being crossed out
         self._drag_start  = AppKit.NSPoint(0, 0)
         self._is_dragging = False
         self._check_rects     = []   # [(event_index, NSRect)] for hit testing
@@ -2000,9 +2005,11 @@ class ContentView(AppKit.NSView):
         badge_color = self._badge_color(is_current)
 
         # Reserve right margin for the check circle on task rows
-        right_inset = 36 if is_task else 12
+        right_inset  = 36 if is_task else 12
+        crossing_off = is_task and ev.get("id") and ev.get("id") == self._checking_off_id
         self._draw_single_message(badge_text, badge_color, ev["title"],
-                                  format_time_range(ev), y, p, right_inset=right_inset, sc=sc)
+                                  format_time_range(ev), y, p, right_inset=right_inset, sc=sc,
+                                  strikethrough=crossing_off)
 
         # Check circle — shown for ALL tasks (NOW and NEXT), never for calendar events
         if is_task:
@@ -2080,7 +2087,7 @@ class ContentView(AppKit.NSView):
         sub_rect = AppKit.NSMakeRect(PADDING_L, cy - 26, w - PADDING_L * 2, 16)
         sub_str.drawInRect_(sub_rect)
 
-    def _draw_single_message(self, badge, badge_color, title, subtitle, y, p, right_inset=12, sc=1.0):
+    def _draw_single_message(self, badge, badge_color, title, subtitle, y, p, right_inset=12, sc=1.0, strikethrough=False):
         w = self.bounds().size.width
         text_w = w - PADDING_L - right_inset   # usable width for title / subtitle
 
@@ -2104,6 +2111,8 @@ class ContentView(AppKit.NSView):
             AppKit.NSForegroundColorAttributeName: p["title"],
             AppKit.NSParagraphStyleAttributeName: ps,
         }
+        if strikethrough:
+            title_attrs[AppKit.NSStrikethroughStyleAttributeName] = 2  # NSUnderlineStyleSingle
         sub_attrs = {
             AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_weight_(round(10 * sc), AppKit.NSFontWeightRegular),
             AppKit.NSForegroundColorAttributeName: p["subtitle"],
@@ -2905,13 +2914,16 @@ class AppDelegate(AppKit.NSObject):
         ev = dict(event)  # copy so the lambda captures a stable reference
         # Capture screen on the main thread before launching background work
         panel_screen = self._panel.screen() if self._panel else None
-        self._run_on_main(lambda: self._content_view.setMessage_("Checking off…"))
+        # Show strikethrough on the task in-place rather than clearing the events list
+        eid = ev.get("id")
+        self._run_on_main(lambda: setattr(self._content_view, '_checking_off', True))
+        self._run_on_main(lambda: setattr(self._content_view, '_checking_off_id', eid))
+        self._run_on_main(lambda: self._content_view.setNeedsDisplay_(True))
         threading.Thread(target=lambda: self._do_check_off(ev, panel_screen), daemon=True).start()
 
 
     def _do_check_off(self, event, panel_screen=None):
-        self._run_on_main(lambda: setattr(self._content_view, '_checking_off', True))
-        self._run_on_main(lambda: self._content_view.setNeedsDisplay_(True))
+        # _checking_off and _checking_off_id already set by checkOffEvent_ on the main thread
         # Remove this specific task from auto-extend tracking
         event_id = event.get("id", "")
         AppDelegate._tracked_tasks.pop(event_id, None)
@@ -2951,15 +2963,22 @@ class AppDelegate(AppKit.NSObject):
                         complete_task_by_title(AppDelegate.config, title)
                 except Exception:
                     pass  # best-effort
-            # FIX 10: soft reload instead of os.execv restart — confetti finishes then refresh
+            # Soft reload after confetti finishes; reset strikethrough state first
             def _restart():
                 time.sleep(10.5)   # confetti lasts ~9.5 s
-                self._run_on_main(self.scheduleImmediateRefresh)
+                def _reset():
+                    self._content_view._checking_off    = False
+                    self._content_view._checking_off_id = None
+                    self.scheduleImmediateRefresh()
+                self._run_on_main(_reset)
             threading.Thread(target=_restart, daemon=True).start()
         except Exception as e:
             err = str(e)
-            self._run_on_main(lambda: setattr(self._content_view, '_checking_off', False))
-            self._run_on_main(lambda: self._content_view.setError_(err))
+            def _err_reset():
+                self._content_view._checking_off    = False
+                self._content_view._checking_off_id = None
+                self._content_view.setError_(err)
+            self._run_on_main(_err_reset)
 
     def showOnboardingTip_(self, timer):
         """Show a one-time native notification explaining how to use the widget."""
