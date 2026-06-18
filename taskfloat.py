@@ -2180,6 +2180,28 @@ class _BorderlessKeyWindow(AppKit.NSWindow):
     def canBecomeMainWindow(self):
         return False
 
+
+class _DialogBgView(AppKit.NSView):
+    """Draws the rounded translucent background matching the widget's palette."""
+    def drawRect_(self, rect):
+        C = AppKit.NSColor
+        appearance = self.effectiveAppearance()
+        best = appearance.bestMatchFromAppearancesWithNames_([
+            AppKit.NSAppearanceNameAqua, AppKit.NSAppearanceNameDarkAqua,
+        ])
+        is_dark = best == AppKit.NSAppearanceNameDarkAqua
+        bg = C.colorWithWhite_alpha_(0.12, 0.94) if is_dark else C.colorWithWhite_alpha_(0.96, 0.96)
+        bounds = self.bounds()
+        path = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bounds, 16, 16)
+        bg.setFill()
+        path.fill()
+
+    def isOpaque(self):
+        return False
+
+    def viewDidChangeEffectiveAppearance(self):
+        self.setNeedsDisplay_(True)
+
 _DIALOG_TITLES = [
     "What are we crushing next?",
     "What's the move?",
@@ -2218,7 +2240,7 @@ class _HypeDialog(AppKit.NSObject):
         self._win.setOpaque_(False)
         self._win.setBackgroundColor_(AppKit.NSColor.clearColor())
         self._win.setHasShadow_(True)
-        self._win.setIsMovableByWindowBackground_(True)
+        self._win.setMovableByWindowBackground_(True)
         # Stay on current Space — don't switch Spaces
         self._win.setCollectionBehavior_(2 | 256)  # MoveToActiveSpace | FullScreenAuxiliary
 
@@ -2229,18 +2251,10 @@ class _HypeDialog(AppKit.NSObject):
         oy  = sf.origin.y + (sf.size.height - H) / 2
         self._win.setFrameOrigin_(AppKit.NSPoint(ox, oy))
 
-        # ── Vibrancy background (popover material, rounded corners) ──────
-        vfx = AppKit.NSVisualEffectView.alloc().initWithFrame_(
-            AppKit.NSMakeRect(0, 0, W, H)
-        )
-        vfx.setMaterial_(6)      # NSVisualEffectMaterialPopover
-        vfx.setBlendingMode_(0)  # NSVisualEffectBlendingModeBehindWindow
-        vfx.setState_(1)         # NSVisualEffectStateActive — always vivid
-        vfx.setWantsLayer_(True)
-        vfx.layer().setCornerRadius_(16)
-        vfx.layer().setMasksToBounds_(True)
-        self._win.setContentView_(vfx)
-        cv = vfx
+        # ── Rounded translucent background (matches widget palette) ──────
+        bg_view = _DialogBgView.alloc().initWithFrame_(AppKit.NSMakeRect(0, 0, W, H))
+        self._win.setContentView_(bg_view)
+        cv = bg_view
 
         # ── GIF / emoji (compact) ─────────────────────────────────────────
         gif_path = _random_hype_gif() if WebKit else None
@@ -2694,8 +2708,11 @@ class AppDelegate(AppKit.NSObject):
         if screen is None:
             screen = AppKit.NSScreen.mainScreen()
 
-        dialog = _HypeDialog.alloc().initWithOpenCal_screen_(open_cal, screen)
-        task_title, open_cal = dialog.run()
+        try:
+            dialog = _HypeDialog.alloc().initWithOpenCal_screen_(open_cal, screen)
+            task_title, open_cal = dialog.run()
+        except Exception:
+            return
         AppKit.NSApp.deactivate()
         self._panel.orderFrontRegardless()
 
