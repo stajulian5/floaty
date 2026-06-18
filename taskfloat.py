@@ -2207,6 +2207,9 @@ class _HypeDialog(AppKit.NSObject):
             AppKit.NSBackingStoreBuffered, False,
         )
         self._win.setTitle_("Floaty")
+        # Stay on whichever Space the user is currently on — don't switch Spaces.
+        # MoveToActiveSpace (2) | FullScreenAuxiliary (256)
+        self._win.setCollectionBehavior_(2 | 256)
         # Center on the screen that contains the widget
         scr = screen or AppKit.NSScreen.mainScreen()
         sf  = scr.visibleFrame()
@@ -2311,6 +2314,9 @@ class _HypeDialog(AppKit.NSObject):
         return self
 
     def run(self) -> "tuple[str|None, bool]":
+        # Show window first so MoveToActiveSpace pins it to the current Space,
+        # then activate so keyboard input works — avoids a Space switch.
+        self._win.orderFrontRegardless()
         AppKit.NSApp.activateIgnoringOtherApps_(True)
         self._win.makeKeyAndOrderFront_(None)
         self._field.selectText_(None)
