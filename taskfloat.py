@@ -2692,21 +2692,10 @@ class AppDelegate(AppKit.NSObject):
         ud       = Foundation.NSUserDefaults.standardUserDefaults()
         open_cal = bool(ud.boolForKey_(self._OPEN_CAL_KEY))
 
-        # Find the screen that actually contains the panel's centre point.
-        # panel.screen() returns nil on secondary displays in some macOS versions.
-        screen = None
-        if self._panel:
-            pf = self._panel.frame()
-            cx = pf.origin.x + pf.size.width  / 2
-            cy = pf.origin.y + pf.size.height / 2
-            for s in AppKit.NSScreen.screens():
-                sf = s.frame()
-                if (sf.origin.x <= cx <= sf.origin.x + sf.size.width and
-                        sf.origin.y <= cy <= sf.origin.y + sf.size.height):
-                    screen = s
-                    break
-        if screen is None:
-            screen = AppKit.NSScreen.mainScreen()
+        # Use the screen where the user is currently active (has keyboard focus),
+        # not the screen where the Floaty widget lives — they can differ on
+        # multi-display setups or when a fullscreen app is in front.
+        screen = AppKit.NSScreen.mainScreen() or AppKit.NSScreen.screens()[0]
 
         try:
             dialog = _HypeDialog.alloc().initWithOpenCal_screen_(open_cal, screen)
