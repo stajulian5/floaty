@@ -1689,6 +1689,7 @@ class ContentView(AppKit.NSView):
 
     # ---- Inline add-task input mode --------------------------------------
 
+    @objc.python_method
     def enterInputMode(self, open_cal: bool, delegate) -> None:
         if self._input_mode:
             return
@@ -1774,6 +1775,7 @@ class ContentView(AppKit.NSView):
         AppKit.NSApp.activateIgnoringOtherApps_(True)
         win.makeFirstResponder_(field)
 
+    @objc.python_method
     def exitInputMode(self) -> None:
         if not self._input_mode:
             return
