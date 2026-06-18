@@ -1527,6 +1527,29 @@ def show_confetti(screen=None):
     )
     view = ConfettiView.alloc().initWithFrame_(frame)
     win.setContentView_(view)
+
+    # Show a celebration GIF centered on screen during confetti
+    if WebKit:
+        gif_path = _random_hype_gif()
+        if gif_path:
+            GIF_SZ, BG_PAD = 240, 16
+            bg_w  = GIF_SZ + BG_PAD * 2
+            bg_h  = GIF_SZ + BG_PAD * 2
+            bg_x  = (frame.size.width  - bg_w) / 2
+            bg_y  = (frame.size.height - bg_h) / 2
+            bg_view = _DialogBgView.alloc().initWithFrame_(
+                AppKit.NSMakeRect(bg_x, bg_y, bg_w, bg_h)
+            )
+            wv_config = WebKit.WKWebViewConfiguration.alloc().init()
+            wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
+                AppKit.NSMakeRect(BG_PAD, BG_PAD, GIF_SZ, GIF_SZ), wv_config
+            )
+            wv.setValue_forKey_(AppKit.NSColor.clearColor(), "backgroundColor")
+            gif_url = Foundation.NSURL.fileURLWithPath_(str(gif_path))
+            wv.loadFileURL_allowingReadAccessToURL_(gif_url, gif_url)
+            bg_view.addSubview_(wv)
+            view.addSubview_(bg_view)
+
     _confetti_windows.append(win)   # prevent GC
     win.orderFrontRegardless()
     view.start()
@@ -1538,6 +1561,7 @@ def show_confetti(screen=None):
 
 WIDGET_H_SINGLE = 56
 WIDGET_H_DOUBLE = 100
+INPUT_H         = 116  # height of inline add-task expansion area
 
 def get_widget_w(config: dict) -> int:
     """Return widget width based on config setting."""
@@ -1583,6 +1607,13 @@ class ContentView(AppKit.NSView):
         self._pulse_timer     = None
         self._pulse_count     = 0
         self._pulse_direction = 1
+        # Inline add-task input mode
+        self._input_mode     = False
+        self._input_old_h    = 0
+        self._input_subview  = None
+        self._input_field    = None
+        self._input_checkbox = None
+        self._input_delegate = None
         return self
 
     # ---- State updates ---------------------------------------------------
@@ -1656,10 +1687,130 @@ class ContentView(AppKit.NSView):
         sc = get_widget_scale(cfg)
         return round(HISTORY_HEADER_H * sc) + len(self._history) * round(HISTORY_ITEM_H * sc) + 8
 
+    # ---- Inline add-task input mode --------------------------------------
+
+    def enterInputMode(self, open_cal: bool, delegate) -> None:
+        if self._input_mode:
+            return
+        win = self.window()
+        if not win:
+            return
+        cfg      = getattr(AppDelegate, "config", {}) if "AppDelegate" in dir() else {}
+        widget_w = get_widget_w(cfg)
+        old_h    = self.bounds().size.height
+        new_h    = old_h + INPUT_H
+
+        self._input_mode     = True
+        self._input_old_h    = old_h
+        self._input_delegate = delegate
+
+        # Expand panel downward, keeping top edge fixed
+        old_frame    = win.frame()
+        new_origin_y = old_frame.origin.y + old_frame.size.height - new_h
+        new_frame    = AppKit.NSMakeRect(old_frame.origin.x, new_origin_y, old_frame.size.width, new_h)
+        win.setFrame_display_(new_frame, True)
+        self.setFrame_(AppKit.NSMakeRect(0, 0, widget_w, new_h))
+
+        # Build input subview in the newly revealed bottom area.
+        # ContentView is flipped (y=0=top) so y=old_h places sub right below events.
+        # The sub itself is NOT flipped: y=0=bottom, y=INPUT_H=top.
+        PAD, M   = 10, 12
+        cancel_w = 70
+        add_w    = widget_w - M * 2 - cancel_w - 8
+
+        sub = AppKit.NSView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(0, old_h, widget_w, INPUT_H)
+        )
+
+        field = AppKit.NSTextField.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, INPUT_H - PAD - 36, widget_w - M * 2, 36)
+        )
+        field.setPlaceholderString_("Task name…")
+        field.setFont_(AppKit.NSFont.systemFontOfSize_(13))
+        field.setBezeled_(True)
+        field.setBezelStyle_(1)  # NSTextFieldRoundedBezel
+        field.setFocusRingType_(AppKit.NSFocusRingTypeNone)
+        sub.addSubview_(field)
+        self._input_field = field
+
+        cb_y = INPUT_H - PAD - 36 - 8 - 20
+        checkbox = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, cb_y, widget_w - M * 2, 20)
+        )
+        checkbox.setButtonType_(AppKit.NSSwitchButton)
+        checkbox.setTitle_("Open Calendar to schedule")
+        checkbox.setFont_(AppKit.NSFont.systemFontOfSize_(10.5))
+        checkbox.setState_(AppKit.NSOnState if open_cal else AppKit.NSOffState)
+        sub.addSubview_(checkbox)
+        self._input_checkbox = checkbox
+
+        cancel_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M, PAD, cancel_w, 28)
+        )
+        cancel_btn.setTitle_("Cancel")
+        cancel_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        cancel_btn.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        cancel_btn.setKeyEquivalent_("\x1b")
+        cancel_btn.setTarget_(self)
+        cancel_btn.setAction_("_inputCancel:")
+        sub.addSubview_(cancel_btn)
+
+        add_btn = AppKit.NSButton.alloc().initWithFrame_(
+            AppKit.NSMakeRect(M + cancel_w + 8, PAD, add_w, 28)
+        )
+        add_btn.setTitle_("Add Task ↵")
+        add_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
+        add_btn.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        add_btn.setKeyEquivalent_("\r")
+        add_btn.setTarget_(self)
+        add_btn.setAction_("_inputAdd:")
+        sub.addSubview_(add_btn)
+
+        self._input_subview = sub
+        self.addSubview_(sub)
+        self.setNeedsDisplay_(True)
+
+        win.makeKeyAndOrderFront_(None)
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
+        win.makeFirstResponder_(field)
+
+    def exitInputMode(self) -> None:
+        if not self._input_mode:
+            return
+        if self._input_subview:
+            self._input_subview.removeFromSuperview()
+            self._input_subview  = None
+            self._input_field    = None
+            self._input_checkbox = None
+        self._input_mode     = False
+        self._input_delegate = None
+        self._resize_to_fit()
+        self.setNeedsDisplay_(True)
+        win = self.window()
+        if win:
+            win.orderFrontRegardless()
+
+    def _inputAdd_(self, sender):
+        title    = str(self._input_field.stringValue()).strip() if self._input_field else ""
+        open_cal = (self._input_checkbox.state() == AppKit.NSOnState) if self._input_checkbox else False
+        delegate = self._input_delegate
+        self.exitInputMode()
+        if title and delegate:
+            Foundation.NSUserDefaults.standardUserDefaults().setBool_forKey_(
+                open_cal, "taskfloat.openCalendarAfterAdd"
+            )
+            self.setMessage_("Adding task…")
+            threading.Thread(target=lambda: delegate._do_add_task(title, open_cal), daemon=True).start()
+
+    def _inputCancel_(self, sender):
+        self.exitInputMode()
+
     def _resize_to_fit(self, animate=False):
         win = self.window()
         if not win:
             return
+        if self._input_mode:
+            return  # don't disturb the expanded frame while input is open
         cfg = getattr(AppDelegate, "config", {}) if "AppDelegate" in dir() else {}
         sc = get_widget_scale(cfg)
         widget_w = get_widget_w(cfg)
@@ -1799,6 +1950,11 @@ class ContentView(AppKit.NSView):
             h_double = round(WIDGET_H_DOUBLE * sc)
             base_h = h_double if len(self._events) >= 2 else h_single
             self._draw_history_section(base_h, w, p, sc=sc)
+
+        # Horizontal separator between events and inline input area
+        if self._input_mode and self._input_old_h > 0:
+            p["sep_h"].setFill()
+            AppKit.NSRectFill(AppKit.NSMakeRect(PADDING_L, self._input_old_h, w - PADDING_L * 2, 0.5))
 
         # Toast overlay (e.g. "✓ Task added!") — drawn on top of everything
         if self._toast_text:
@@ -1960,10 +2116,14 @@ class ContentView(AppKit.NSView):
     # ---- Drag ------------------------------------------------------------
 
     def mouseDown_(self, event):
+        if self._input_mode:
+            return
         self._drag_start  = event.locationInWindow()
         self._is_dragging = False
 
     def mouseDragged_(self, event):
+        if self._input_mode:
+            return
         self._is_dragging = True
         win = self.window()
         if not win:
@@ -2689,29 +2849,11 @@ class AppDelegate(AppKit.NSObject):
     _OPEN_CAL_KEY = "taskfloat.openCalendarAfterAdd"
 
     def showAddTaskDialog(self):
+        if getattr(self._content_view, '_input_mode', False):
+            return  # already open
         ud       = Foundation.NSUserDefaults.standardUserDefaults()
         open_cal = bool(ud.boolForKey_(self._OPEN_CAL_KEY))
-
-        # Use the screen where the user is currently active (has keyboard focus),
-        # not the screen where the Floaty widget lives — they can differ on
-        # multi-display setups or when a fullscreen app is in front.
-        screen = AppKit.NSScreen.mainScreen() or AppKit.NSScreen.screens()[0]
-
-        try:
-            dialog = _HypeDialog.alloc().initWithOpenCal_screen_(open_cal, screen)
-            task_title, open_cal = dialog.run()
-        except Exception:
-            return
-        AppKit.NSApp.deactivate()
-        self._panel.orderFrontRegardless()
-
-        ud.setBool_forKey_(open_cal, self._OPEN_CAL_KEY)
-        if task_title:
-            self._content_view.setMessage_("Adding task…")
-            threading.Thread(
-                target=lambda: self._do_add_task(task_title, open_cal),
-                daemon=True,
-            ).start()
+        self._content_view.enterInputMode(open_cal, self)
 
     def _do_add_task(self, title, open_calendar=False):
         try:
