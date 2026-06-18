@@ -2185,12 +2185,17 @@ class ContentView(AppKit.NSView):
                         self._flash_idx = idx
                         self.setNeedsDisplay_(True)
                         ev_copy = dict(ev)
+                        # Set strikethrough immediately — no delay, no queue
+                        self._checking_off    = True
+                        self._checking_off_id = ev.get("id")
+                        self.setNeedsDisplay_(True)
                         def _deferred(d=delegate, e=ev_copy):
                             def _on_main():
                                 self._flash_idx = None
+                                self.setNeedsDisplay_(True)
                                 d.checkOffEvent_(e)
                             AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(_on_main)
-                        threading.Timer(0.28, _deferred).start()
+                        threading.Timer(0.2, _deferred).start()
                 return
 
         # Free state: clicking anywhere (not "+" which is handled above) opens dialog
@@ -2912,73 +2917,54 @@ class AppDelegate(AppKit.NSObject):
 
     def checkOffEvent_(self, event):
         ev = dict(event)  # copy so the lambda captures a stable reference
-        # Capture screen on the main thread before launching background work
+        # Strikethrough + busy state already set directly in mouseUp_ — no queue needed.
+        # Capture screen on main thread, then hand off everything else to background.
         panel_screen = self._panel.screen() if self._panel else None
-        # Show strikethrough on the task in-place rather than clearing the events list
-        eid = ev.get("id")
-        self._run_on_main(lambda: setattr(self._content_view, '_checking_off', True))
-        self._run_on_main(lambda: setattr(self._content_view, '_checking_off_id', eid))
-        self._run_on_main(lambda: self._content_view.setNeedsDisplay_(True))
         threading.Thread(target=lambda: self._do_check_off(ev, panel_screen), daemon=True).start()
 
-
     def _do_check_off(self, event, panel_screen=None):
-        # _checking_off and _checking_off_id already set by checkOffEvent_ on the main thread
-        # Remove this specific task from auto-extend tracking
-        event_id = event.get("id", "")
+        event_id     = event.get("id", "")
+        is_task_only = event.get("task_only", False)
+        title        = event.get("title", "")
         AppDelegate._tracked_tasks.pop(event_id, None)
+
+        # ── Celebrate immediately (optimistic) ─────────────────────────────
+        # Fire confetti before any network call so the user gets instant reward.
+        self._run_on_main(lambda: show_confetti(panel_screen))
+
+        # ── Update local history & status bar (no network) ─────────────────
+        if title and title != "(No title)":
+            AppDelegate._crushed_history = ([title] + AppDelegate._crushed_history)[:10]
+            AppDelegate._crushed_today  += 1
+            ud        = Foundation.NSUserDefaults.standardUserDefaults()
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            ud.setObject_forKey_(AppDelegate._crushed_history, HISTORY_KEY)
+            ud.setObject_forKey_({"date": today_str, "count": AppDelegate._crushed_today}, CRUSHED_TODAY_KEY)
+            ud.synchronize()
+            self._run_on_main(self._update_status_title)
+
+        # ── Network: complete task / delete calendar entry (best-effort) ────
         try:
-            is_task_only = event.get("task_only", False)
-            event_id = event.get("id", "")
             if not is_task_only and event_id:
-                # FIX 14: pass actual calendar ID instead of always using "primary"
                 cal_id = event.get("_cal_id", "primary")
                 delete_calendar_event(AppDelegate.config, event_id, cal_id=cal_id)
-            phrase = _random_phrase()
-            voice  = _random_voice()
-            def _celebrate(p=phrase, v=voice, scr=panel_screen):
-                show_confetti(scr)
-            self._run_on_main(_celebrate)
-            title = event.get("title", "")
             if title and title != "(No title)":
-                # Update persistent history
-                AppDelegate._crushed_history = ([title] + AppDelegate._crushed_history)[:10]
-                ud = Foundation.NSUserDefaults.standardUserDefaults()
-                ud.setObject_forKey_(AppDelegate._crushed_history, HISTORY_KEY)
-                # Increment today's count
-                AppDelegate._crushed_today += 1
-                today_str = datetime.now().strftime("%Y-%m-%d")
-                ud.setObject_forKey_({"date": today_str, "count": AppDelegate._crushed_today}, CRUSHED_TODAY_KEY)
-                ud.synchronize()  # flush to disk before restart
-                self._run_on_main(self._update_status_title)
-                try:
-                    if is_task_only and event_id and event.get("task_list_id"):
-                        # Fast path: we already have the list ID + task ID
-                        _complete_task_by_id(
-                            AppDelegate.config,
-                            event["task_list_id"],
-                            event_id,
-                        )
-                    else:
-                        complete_task_by_title(AppDelegate.config, title)
-                except Exception:
-                    pass  # best-effort
-            # Soft reload after confetti finishes; reset strikethrough state first
-            def _restart():
-                time.sleep(10.5)   # confetti lasts ~9.5 s
-                def _reset():
-                    self._content_view._checking_off    = False
-                    self._content_view._checking_off_id = None
-                    self.scheduleImmediateRefresh()
-                self._run_on_main(_reset)
-            threading.Thread(target=_restart, daemon=True).start()
-        except Exception as e:
-            err = str(e)
-            def _err_reset():
+                if is_task_only and event_id and event.get("task_list_id"):
+                    _complete_task_by_id(AppDelegate.config, event["task_list_id"], event_id)
+                else:
+                    complete_task_by_title(AppDelegate.config, title)
+        except Exception:
+            pass  # confetti already shown; next refresh will reconcile
+
+        # ── Reset strikethrough and refresh after confetti ends (~10 s) ─────
+        def _restart():
+            time.sleep(10.5)
+            def _reset():
                 self._content_view._checking_off    = False
                 self._content_view._checking_off_id = None
-                self._content_view.setError_(err)
-            self._run_on_main(_err_reset)
+                self.scheduleImmediateRefresh()
+            self._run_on_main(_reset)
+        threading.Thread(target=_restart, daemon=True).start()
 
     def showOnboardingTip_(self, timer):
         """Show a one-time native notification explaining how to use the widget."""
