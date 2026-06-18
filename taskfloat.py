@@ -2173,6 +2173,13 @@ class FloatingPanel(AppKit.NSPanel):
 # Add-Task dialog with animated GIF
 # ---------------------------------------------------------------------------
 
+class _BorderlessKeyWindow(AppKit.NSWindow):
+    """Borderless window that can still become key (receive keyboard input)."""
+    def canBecomeKeyWindow(self):
+        return True
+    def canBecomeMainWindow(self):
+        return False
+
 _DIALOG_TITLES = [
     "What are we crushing next?",
     "What's the move?",
@@ -2196,40 +2203,51 @@ class _HypeDialog(AppKit.NSObject):
         self = objc.super(_HypeDialog, self).init()
         if self is None:
             return None
-        self._title_result  = None
+        self._title_result    = None
         self._open_cal_result = open_cal
 
-        W, H = 360, 460
-        M = 20   # horizontal margin
-        self._win = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+        W, H = 340, 316
+        M = 24  # horizontal margin
+
+        # ── Borderless, transparent window ───────────────────────────────
+        self._win = _BorderlessKeyWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             AppKit.NSMakeRect(0, 0, W, H),
-            AppKit.NSWindowStyleMaskTitled,
+            AppKit.NSWindowStyleMaskBorderless,
             AppKit.NSBackingStoreBuffered, False,
         )
-        self._win.setTitle_("Floaty")
-        # Stay on whichever Space the user is currently on — don't switch Spaces.
-        # MoveToActiveSpace (2) | FullScreenAuxiliary (256)
-        self._win.setCollectionBehavior_(2 | 256)
+        self._win.setOpaque_(False)
+        self._win.setBackgroundColor_(AppKit.NSColor.clearColor())
+        self._win.setHasShadow_(True)
+        self._win.setIsMovableByWindowBackground_(True)
+        # Stay on current Space — don't switch Spaces
+        self._win.setCollectionBehavior_(2 | 256)  # MoveToActiveSpace | FullScreenAuxiliary
+
         # Center on the screen that contains the widget
         scr = screen or AppKit.NSScreen.mainScreen()
         sf  = scr.visibleFrame()
         ox  = sf.origin.x + (sf.size.width  - W) / 2
         oy  = sf.origin.y + (sf.size.height - H) / 2
         self._win.setFrameOrigin_(AppKit.NSPoint(ox, oy))
-        cv = self._win.contentView()
 
-        # ── GIF / emoji area  (fills most of the width, tall) ─────────────
+        # ── Vibrancy background (popover material, rounded corners) ──────
+        vfx = AppKit.NSVisualEffectView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(0, 0, W, H)
+        )
+        vfx.setMaterial_(6)      # NSVisualEffectMaterialPopover
+        vfx.setBlendingMode_(0)  # NSVisualEffectBlendingModeBehindWindow
+        vfx.setState_(1)         # NSVisualEffectStateActive — always vivid
+        vfx.setWantsLayer_(True)
+        vfx.layer().setCornerRadius_(16)
+        vfx.layer().setMasksToBounds_(True)
+        self._win.setContentView_(vfx)
+        cv = vfx
+
+        # ── GIF / emoji (compact) ─────────────────────────────────────────
         gif_path = _random_hype_gif() if WebKit else None
         if gif_path:
-            # WKWebView animates GIFs natively on all macOS versions.
-            # NSImageView.setAnimates_ is deprecated in macOS 14+ and often
-            # shows only the first frame.
-            gif_frame = AppKit.NSMakeRect(M, 210, W - M * 2, 230)
+            gif_frame = AppKit.NSMakeRect(M, 196, W - M * 2, 108)
             wv_config = WebKit.WKWebViewConfiguration.alloc().init()
-            wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
-                gif_frame, wv_config
-            )
-            # Public API (macOS 12+) for transparent background — avoids private KVC key
+            wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(gif_frame, wv_config)
             wv.setValue_forKey_(AppKit.NSColor.clearColor(), "backgroundColor")
             gif_url = Foundation.NSURL.fileURLWithPath_(str(gif_path))
             wv.loadFileURL_allowingReadAccessToURL_(gif_url, gif_url)
@@ -2237,10 +2255,10 @@ class _HypeDialog(AppKit.NSObject):
         else:
             emoji = random.choice(self._FALLBACK_EMOJIS)
             lbl = AppKit.NSTextField.alloc().initWithFrame_(
-                AppKit.NSMakeRect(M, 210, W - M * 2, 230)
+                AppKit.NSMakeRect(M, 196, W - M * 2, 108)
             )
             lbl.setStringValue_(emoji)
-            lbl.setFont_(AppKit.NSFont.systemFontOfSize_(160))
+            lbl.setFont_(AppKit.NSFont.systemFontOfSize_(72))
             lbl.setAlignment_(AppKit.NSTextAlignmentCenter)
             lbl.setBezeled_(False)
             lbl.setDrawsBackground_(False)
@@ -2249,10 +2267,10 @@ class _HypeDialog(AppKit.NSObject):
 
         # ── Title ─────────────────────────────────────────────────────────
         title_lbl = AppKit.NSTextField.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, 178, W - M * 2, 24)
+            AppKit.NSMakeRect(M, 170, W - M * 2, 22)
         )
         title_lbl.setStringValue_(random.choice(_DIALOG_TITLES))
-        title_lbl.setFont_(AppKit.NSFont.boldSystemFontOfSize_(15))
+        title_lbl.setFont_(AppKit.NSFont.boldSystemFontOfSize_(14))
         title_lbl.setAlignment_(AppKit.NSTextAlignmentCenter)
         title_lbl.setBezeled_(False)
         title_lbl.setDrawsBackground_(False)
@@ -2261,37 +2279,40 @@ class _HypeDialog(AppKit.NSObject):
 
         # ── Sub-title ─────────────────────────────────────────────────────
         sub_lbl = AppKit.NSTextField.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, 156, W - M * 2, 18)
+            AppKit.NSMakeRect(M, 150, W - M * 2, 16)
         )
-        sub_lbl.setStringValue_("This will be added to your 🚀 Today task list.")
+        sub_lbl.setStringValue_("Goes to your 🚀 Today list.")
         sub_lbl.setFont_(AppKit.NSFont.systemFontOfSize_(11))
-        sub_lbl.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        sub_lbl.setTextColor_(AppKit.NSColor.tertiaryLabelColor())
         sub_lbl.setAlignment_(AppKit.NSTextAlignmentCenter)
         sub_lbl.setBezeled_(False)
         sub_lbl.setDrawsBackground_(False)
         sub_lbl.setEditable_(False)
         cv.addSubview_(sub_lbl)
 
-        # ── Task name field ───────────────────────────────────────────────
+        # ── Task name field (large, rounded) ─────────────────────────────
         self._field = AppKit.NSTextField.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, 122, W - M * 2, 26)
+            AppKit.NSMakeRect(M, 104, W - M * 2, 36)
         )
-        self._field.setPlaceholderString_("Type here and press ↵ to add…")
+        self._field.setPlaceholderString_("Task name…")
+        self._field.setFont_(AppKit.NSFont.systemFontOfSize_(14))
+        self._field.setBezeled_(True)
+        self._field.setBezelStyle_(1)  # NSTextFieldRoundedBezel
         cv.addSubview_(self._field)
 
         # ── Checkbox ──────────────────────────────────────────────────────
         self._checkbox = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, 92, W - M * 2, 22)
+            AppKit.NSMakeRect(M, 74, W - M * 2, 22)
         )
         self._checkbox.setButtonType_(AppKit.NSSwitchButton)
-        self._checkbox.setTitle_("Schedule task right away")
+        self._checkbox.setTitle_("Open Calendar to schedule")
         self._checkbox.setFont_(AppKit.NSFont.systemFontOfSize_(11))
         self._checkbox.setState_(AppKit.NSOnState if open_cal else AppKit.NSOffState)
         cv.addSubview_(self._checkbox)
 
         # ── Buttons ───────────────────────────────────────────────────────
         cancel_btn = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect(M, 20, 120, 32)
+            AppKit.NSMakeRect(M, 20, 96, 34)
         )
         cancel_btn.setTitle_("Cancel")
         cancel_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
@@ -2301,9 +2322,9 @@ class _HypeDialog(AppKit.NSObject):
         cv.addSubview_(cancel_btn)
 
         add_btn = AppKit.NSButton.alloc().initWithFrame_(
-            AppKit.NSMakeRect(W - M - 120, 20, 120, 32)
+            AppKit.NSMakeRect(W - M - 148, 20, 148, 34)
         )
-        add_btn.setTitle_("Add Task")
+        add_btn.setTitle_("Add Task  ↵")
         add_btn.setBezelStyle_(AppKit.NSBezelStyleRounded)
         add_btn.setKeyEquivalent_("\r")
         add_btn.setTarget_(self)
